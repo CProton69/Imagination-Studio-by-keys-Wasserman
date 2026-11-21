@@ -19,7 +19,9 @@ def studio(spark=True, installed=True):
     for name in ("renders", "uploads", "scouts", "loras"):
         (home / name).mkdir(parents=True)
     if installed:
-        for node in ("ComfyUI-H3-ContactSheet", "ComfyUI-H3-Video-Upsampler", "h3-relay"):
+        for node in ("ComfyUI-H3-ContactSheet", "ComfyUI-H3-Video-Upsampler", "h3-relay", "ComfyUI-H3-FaceRefine",
+                     "ComfyUI-H3-FaceFix-PixelAILabs",
+                     "MaskVidExperiments", "ComfyUI-VOSR2"):
             (prefix / "ComfyUI/custom_nodes" / node).mkdir(parents=True)
         for file in ("Workflows-Comfy/checkpoints/sam3.1_multiplex_fp16.safetensors",
                      "Workflows-Comfy/latent_upscale_models/minimax_h3_latent_upscaler_3d_bf16.safetensors",
@@ -95,6 +97,54 @@ def test_remove_and_mask():
     assert "who to remove" in refused(build, "remove", {"video": "renders/c.mp4"}, "j")
     assert "window" in refused(build, "remove", {"video": "renders/c.mp4", "person": "x", "window": 30}, "j")
     assert "not a picture" in refused(build, "remove", {"video": "renders/c.mp4", "person": "x", "clean_frame": "renders/c.mp4"}, "j")
+
+
+def test_facefix():
+    home, build, title, source, state = studio()
+    params = {"video": "renders/c.mp4", "image": "uploads/a.png"}
+    command, _, outputs = build("facefix", params, "j6")
+    assert command[2] == "facefix" and command[command.index("--face") + 1].endswith("uploads/a.png")
+    assert (command[command.index("--canvas") + 1], command[command.index("--steps") + 1], command[command.index("--denoise") + 1]) == ("512", "8", "0.5")
+    assert (command[command.index("--full-fix-below-px") + 1], command[command.index("--no-fix-above-px") + 1]) == ("110", "180")
+    assert command[command.index("--prompt") + 1] == ""          # the author's: the face picture alone guides the pass
+    assert outputs[0].endswith("renders/j6.mp4") and outputs[1].endswith("masks/j6/face_crops.mp4")
+    assert title("facefix", params) == "Fix faces: c.mp4" and source("facefix", params) == "renders/c.mp4"
+    assert "choose a picture" in refused(build, "facefix", {"video": "renders/c.mp4"}, "j")
+    assert "512, 640 or 768" in refused(build, "facefix", {**params, "canvas": 1024}, "j")
+    assert "re-draw" in refused(build, "facefix", {**params, "denoise": 1}, "j")
+    assert "face size fade" in refused(build, "facefix", {**params, "full_fix_below_px": 200, "no_fix_above_px": 180}, "j")
+    assert state()["facefix"]["ready"] and state()["facefix"]["canvas"] == 512
+    picks = lambda c: [c[i + 1] for i, x in enumerate(c) if x == "--select"]
+    assert picks(command) == ["largest_face"]                   # one face: the largest
+    (home / "uploads/b.png").write_bytes(b"x")
+    two = {"video": "renders/c.mp4", "faces": [{"image": "uploads/a.png"}, {"image": "uploads/b.png"}]}
+    command, _, outputs = build("facefix", two, "j7")              # two: left to right, a pass each, chained
+    assert [command[i + 1].rsplit("/", 1)[-1] for i, x in enumerate(command) if x == "--face"] == ["a.png", "b.png"]
+    assert picks(command) == ["left_most", "right_most"]
+    assert [Path(o).name for o in outputs] == ["j7.mp4", "face_crops.mp4", "face2_crops.mp4"]
+    command, _, _ = build("facefix", {**two, "faces": [{"image": "uploads/a.png", "which": "right"}, {"image": "uploads/b.png", "which": "largest"}]}, "j8")
+    assert picks(command) == ["right_most", "largest_face"]
+    assert "different face" in refused(build, "facefix", {**two, "faces": [{"image": "uploads/a.png", "which": "left"}, {"image": "uploads/b.png", "which": "left"}]}, "j")
+    assert "at most 4" in refused(build, "facefix", {**two, "faces": [{"image": "uploads/a.png"}] * 5}, "j")
+    assert "which face" in refused(build, "facefix", {**two, "faces": [{"image": "uploads/a.png", "which": "tallest"}]}, "j")
+    assert "not a picture" in refused(build, "facefix", {**two, "faces": [{"image": "renders/c.mp4"}]}, "j")
+    (Path(os.environ["PREFIX"]) / "face-site/ultralytics").rmdir()   # the face detector's packages, outside the venv
+    assert "setup-workflows.sh" in state()["facefix"]["why"]
+
+
+def test_facefix_graph_fades_the_stitch_on_large_faces(monkeypatch):
+    from types import SimpleNamespace
+    sys.path.insert(0, str(PACK / "spark"))
+    import spark_workflows as sw
+
+    monkeypatch.setattr(sw.sg, "upload", lambda path: path)
+    args = SimpleNamespace(crop_factor=2.5, canvas=768, full_fix_below_px=110, no_fix_above_px=180,
+                           prompt="", seed=1, keep="")
+    graph = {}
+    sw.face_pass(graph, 1, ["7", 0], "face.png", "largest_face", args, ["25", 0], restore=False)
+    assert graph["143"]["class_type"] == "PixelAIH3FaceSizeFade"
+    assert graph["143"]["inputs"]["transform"] == ["108", 1]
+    assert graph["134"]["inputs"]["transform"] == ["143", 0]
 
 
 def test_the_actions_run_on_character_swap_s_int8_ref2va_when_the_bf16_file_is_not_there(monkeypatch):
