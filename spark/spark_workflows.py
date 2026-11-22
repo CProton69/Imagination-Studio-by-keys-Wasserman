@@ -243,15 +243,29 @@ def ref2va() -> str | None:
 
 
 def text_encoder() -> str:
-    """The H3 text encoder these graphs load: the regular file, or, on an install that kept another build in its
-    place (a small card's NVFP4 one, docs/small-cards.md), the one a clip uses by default there
-    (sg.default_text_encoder). ComfyUI turns a graph away for a file it does not list."""
+    """Choose a complete H3 encoder from the files ComfyUI actually lists.
+
+    ComfyUI can list an encoder through an extra model path even when the Studio's
+    usual model-folder link is missing, as on a small Linux card.
+    """
 
     have = listed("CLIPLoader", "clip_name")
-    if sg.H3_TEXT in have:
-        return sg.H3_TEXT
-    other = sg.default_text_encoder()
-    return next((one for one in (other, f"H3/{other}") if other != "regular" and one in have), sg.H3_TEXT)
+    regular = (sg.H3_TEXT, f"H3/{sg.H3_TEXT}")
+    for name in regular:
+        if name in have:
+            return name
+    preferred = sg.default_text_encoder() if hasattr(sg, "default_text_encoder") else "regular"
+    for name in (preferred, f"H3/{preferred}"):
+        if preferred != "regular" and name in have:
+            return name
+    complete = [name for name in have
+                if name.rsplit("/", 1)[-1].startswith("qwen3vl_32b_minimax_h3_")
+                and name.endswith(".safetensors") and "tail" not in name.lower()]
+    if len(complete) == 1:
+        return complete[0]
+    if not complete:
+        sys.exit("ComfyUI does not list a complete MiniMax H3 text encoder")
+    sys.exit("ComfyUI lists several MiniMax H3 text encoders; choose one in the Studio before rendering")
 
 
 def loaders(w: dict, vae: str | None = None, lora: bool = True, transformer: str = "") -> None:

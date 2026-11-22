@@ -357,16 +357,22 @@ def test_a_file_from_the_scratch_folder_is_kept_across_file_systems(tmp_path, mo
 
 
 def test_the_actions_load_the_text_encoder_a_small_card_kept(monkeypatch):
-    """An install that kept an NVFP4 text encoder has no int8 one: ComfyUI turned the removal's graph away for it."""
+    """Use ComfyUI's listed complete H3 encoder, even if the model-folder link is missing."""
 
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "spark"))
     import spark_workflows as W
 
     regular, kept = W.sg.H3_TEXT, "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
-    monkeypatch.setattr(W.sg, "default_text_encoder", lambda: kept)
-    for have, chosen in (([regular, kept], regular), ([kept], kept), ([f"H3/{kept}"], f"H3/{kept}"), ([], regular)):
+    tail = "qwen3vl_32b_minimax_h3_generation_tail_50_63_int8_convrot.safetensors"
+    monkeypatch.setattr(W.sg, "default_text_encoder", lambda: "regular", raising=False)
+    for have, chosen in (([regular, kept], regular), ([kept], kept), ([f"H3/{kept}"], f"H3/{kept}"),
+                         ([tail, kept], kept)):
         monkeypatch.setattr(W, "listed", lambda loader, field, have=have: have)
         assert W.text_encoder() == chosen
-    monkeypatch.setattr(W.sg, "default_text_encoder", lambda: "regular")
-    monkeypatch.setattr(W, "listed", lambda loader, field: [kept])
-    assert W.text_encoder() == regular  # no single other build: the regular name, and ComfyUI says what is missing
+    monkeypatch.setattr(W, "listed", lambda loader, field: [tail])
+    try:
+        W.text_encoder()
+    except SystemExit as error:
+        assert "complete MiniMax H3 text encoder" in str(error)
+    else:
+        assert False, "a partial encoder must be refused before ComfyUI gets the graph"
