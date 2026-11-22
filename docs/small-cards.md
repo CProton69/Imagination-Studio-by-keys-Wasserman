@@ -35,9 +35,10 @@ browsers and other large programs before a clip: on 31 GB they are the differenc
 ### Optional release before decode
 
 In Create → Render, a Linux CUDA single clip has **Release H3 before decode**. It is off by default. It places a
-Studio-owned ComfyUI node between sampling and both VAE decoders: the node unloads the H3 model and empties ComfyUI's
-cache while keeping the sampled latent. This may help a clip that finishes its passes but runs out of GPU memory at
-decode. It cannot make a model fit during loading or sampling, and it may slow the next clip. The queue's admission
+Studio-owned ComfyUI node between sampling and both VAE decoders: the node unloads ComfyUI's models and TensorFold's
+H3 engine, then empties the cache while keeping the sampled latent. This may help a clip that finishes its passes
+but runs out of GPU memory at decode. It cannot make a model fit during loading or sampling, and it may slow the next
+clip. The queue's admission
 check, ComfyUI guard, and memory floor still apply. The same option is `decode_unload: true` in a single video job's
 params. Restart the Studio's ComfyUI server once after upgrading
 so it loads the new node (`bash spark/comfy.sh stop`; the next Studio job starts its server).
