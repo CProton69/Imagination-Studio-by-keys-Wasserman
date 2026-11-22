@@ -78,6 +78,7 @@ function pbCharacter(one, i) {
       S && S.refmod_render ? field("RefMod for this character (video only)", select(one, "refmod", {"":"No character RefMod", ...Object.fromEntries(PB.refmodsAvailable.map(m => [m.name, m.name]))})) : null,
       S && S.refmod_render ? el("div", {class:"note"}, "This saved association adds the RefMod to scenes where this character is selected. RefMods apply to the whole Ref2VA clip, not one subject, and cannot be used by the still-image model that makes a reference sheet.") : null,
       pbPictureTools(one),
+      one.picture ? el("div", {class:"note"}, "The reference still is an image edit of this picture using Appearance and Wardrobe. Check its face before using the sheet; the edit can change likeness.") : null,
       pbSheet(one),
       el("div", { class: "row", style: "margin-top:8px" },
         el("button", { class: "fit primary", onclick: done }, "Save description"),

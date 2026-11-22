@@ -607,12 +607,21 @@ def picture_from_clip(cid: str, body: dict) -> dict:
 
 
 def plain_prompt(one: dict) -> str:
-    """The edit that turns a character's own picture into a turnaround's input: the person alone, full body, on grey
-    (measured: a frame from a busy scene came back as five front views; the same person on grey turned to profile)."""
+    """Edit a saved character picture into a full-body still for the turnaround.
 
-    return ("The same person, standing straight and facing the camera, full body from head to feet, arms relaxed at "
-            "the sides, alone on a plain light grey studio background with soft even lighting. Keep their face, hair, "
-            "clothes and colours exactly as they are. Photorealistic photograph.")
+    The picture anchors identity; the written appearance and wardrobe describe the
+    requested version. Leaving a field blank keeps that part of the source picture.
+    """
+
+    look = str(one.get("look") or "").strip()
+    wardrobe = str(one.get("wardrobe") or "").strip()
+    appearance = (f" Depict this person with this appearance: {look}." if look
+                  else " Keep their face and hair as they appear in image 1.")
+    clothing = (f" Dress them in {wardrobe}." if wardrobe
+                else " Keep their clothes as they appear in image 1.")
+    return ("Use image 1 as the visual identity reference for the same person." + appearance + clothing +
+            " Show them standing straight and facing the camera, full body from head to feet, arms relaxed at the "
+            "sides, alone on a plain light grey studio background with soft even lighting. Photorealistic photograph.")
 
 
 def sheet_prompt(one: dict) -> str:
