@@ -334,3 +334,26 @@ def test_an_action_starts_from_an_empty_server_after_another_kind_of_job(monkeyp
         W.server("turnaround")
         assert bool(stops) == restarted, last
     assert len(released) == 5  # on a Spark the model files' page cache is given back before every action loads
+
+
+def test_the_actions_load_the_text_encoder_a_small_card_kept(monkeypatch):
+    """Use ComfyUI's listed complete H3 encoder, even if the model-folder link is missing."""
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "spark"))
+    import spark_workflows as W
+
+    regular, kept = W.sg.H3_TEXT, "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
+    tail = "qwen3vl_32b_minimax_h3_generation_tail_50_63_int8_convrot.safetensors"
+    monkeypatch.setattr(W.sg, "default_text_encoder", lambda: "regular", raising=False)
+    for have, chosen in (([regular, kept], regular), ([kept], kept), ([f"H3/{kept}"], f"H3/{kept}"),
+                         ([tail, kept], kept)):
+        monkeypatch.setattr(W, "listed", lambda loader, field, have=have: have)
+        assert W.text_encoder() == chosen
+    monkeypatch.setattr(W, "listed", lambda loader, field: [tail])
+    try:
+        W.text_encoder()
+    except SystemExit as error:
+        assert "complete MiniMax H3 text encoder" in str(error)
+    else:
+        assert False, "a partial encoder must be refused before ComfyUI gets the graph"
+

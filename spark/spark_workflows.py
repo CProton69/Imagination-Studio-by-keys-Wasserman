@@ -233,9 +233,35 @@ def ref2va() -> str | None:
     return next((sg.REF2VA[one] for one in ("bf16", "int8") if sg.REF2VA.get(one) in have), None)
 
 
+def text_encoder() -> str:
+    """Choose a complete H3 encoder from the files ComfyUI actually lists.
+
+    ComfyUI can list an encoder through an extra model path even when the Studio's
+    usual model-folder link is missing, as on a small Linux card.
+    """
+
+    have = listed("CLIPLoader", "clip_name")
+    regular = (sg.H3_TEXT, f"H3/{sg.H3_TEXT}")
+    for name in regular:
+        if name in have:
+            return name
+    preferred = sg.default_text_encoder() if hasattr(sg, "default_text_encoder") else "regular"
+    for name in (preferred, f"H3/{preferred}"):
+        if preferred != "regular" and name in have:
+            return name
+    complete = [name for name in have
+                if name.rsplit("/", 1)[-1].startswith("qwen3vl_32b_minimax_h3_")
+                and name.endswith(".safetensors") and "tail" not in name.lower()]
+    if len(complete) == 1:
+        return complete[0]
+    if not complete:
+        sys.exit("ComfyUI does not list a complete MiniMax H3 text encoder")
+    sys.exit("ComfyUI lists several MiniMax H3 text encoders; choose one in the Studio before rendering")
+
+
 def loaders(w: dict, vae: str | None = None) -> None:
     w["1"] = {"class_type": "UNETLoader", "inputs": {"unet_name": ref2va() or sg.REF2VA["bf16"], "weight_dtype": "default"}}
-    w["3"] = {"class_type": "CLIPLoader", "inputs": {"clip_name": sg.H3_TEXT, "type": "minimax", "device": "default"}}
+    w["3"] = {"class_type": "CLIPLoader", "inputs": {"clip_name": text_encoder(), "type": "minimax", "device": "default"}}
     w["4"] = {"class_type": "VAELoader", "inputs": {"vae_name": vae or sg.H3_VAE}}
     w["5"] = {"class_type": "VAELoader", "inputs": {"vae_name": sg.H3_AUDIO_VAE}}
 
