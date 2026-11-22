@@ -61,6 +61,7 @@ try { const a = JSON.parse(localStorage.getItem("studio-look") || "null"), c = d
 <script src="slate.js"></script>
 <script src="director.js"></script>
 <script src="motion.js"></script>
+<script src="rea-video.js"></script>
 <script src="actions.js"></script>
 <script src="captions.js"></script>
 <script src="revise.js"></script>
@@ -1087,7 +1088,8 @@ function libDraw(all_, bin) { const box = el("div", {}, el("h2", {}, "Library"))
       // out of the library: the server moves the file to the studio's trash folder
       el("button", { class: "small", title: "Delete: moves the file to the trash folder", "aria-label": "Delete " + m.path, onclick: () => clearOut({ paths: [m.path], films: true }, "Delete " + m.path.split("/").pop() + "?") }, "🗑")))));
     if (!ACT.state) actLoad().then(() => { if (tab === "Library") render(); });
-    put(box, el("div", { class: "note" }, tally, " files. Click a path to copy it. Tick files to delete several at once; 🗑 deletes one. A deleted file is moved to the trash folder, not erased. Under a clip: Upscale, Remove a person, Restyle, Extend, Fix, Swap the character, Add a title and Caption this clip. Under a picture: Turnaround. Under both: RefMod; or tick several and press RefMod from selected."), actPanel(),
+    reaLoad();
+    put(box, el("div", { class: "note" }, tally, " files. Click a path to copy it. Tick files to delete several at once; 🗑 deletes one. A deleted file is moved to the trash folder, not erased. Under a clip: Upscale, Remove a person, Restyle, Extend, Fix, Swap the character, Break down, Add a title and Caption this clip. Under a picture: Turnaround. Under both: RefMod; or tick several and press RefMod from selected."), actPanel(), reaPanel(), reaLibrary(),
       typeof rcLibrary === "function" ? rcLibrary() : null, typeof finLibPanel === "function" ? finLibPanel() : null,  // Trailer from these (roughcut.js), Finish these (finish.js)
       el("div", { class: "row", style: "margin-top:10px" }, all, many, rfmMany, typeof finLibButton === "function" ? finLibButton() : null, el("span"),
         bin ? el("span", { class: "note fit", id: "trashline" }, "Trash: " + (bin.files ? count(bin.files, "file") + " · " + sizeText(bin.bytes) : "empty")) : null,
