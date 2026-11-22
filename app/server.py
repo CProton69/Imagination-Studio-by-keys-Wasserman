@@ -1371,6 +1371,9 @@ def references(params: dict) -> dict:
     """The job's references as paths under the studio folder: {} when it has none, else ``pictures``, ``videos``
     and ``audios`` (each a list) and ``video_sound`` (the videos' own soundtracks are references too)."""
 
+    if params.get("refmods"):
+        raise HTTPException(400, "RefMod rendering is not available in this build yet")
+
     found = {kind: [str(inside(path)) for path in (params.get(key) or []) if path]
              for kind, key in (("pictures", "references"), ("videos", "reference_videos"), ("audios", "reference_audios"))}
     if len(found["videos"]) == 1 and freed(params.get("pace"), params.get("motion") if isinstance(params.get("motion"), dict) else None, len(found["pictures"])):

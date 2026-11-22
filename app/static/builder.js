@@ -75,8 +75,8 @@ function pbCharacter(one, i) {
       field("Appearance / actor description", bind(one, "look", el("textarea", {style: "min-height:72px", maxlength: 600, placeholder: "Age, face, hair, build and distinguishing features; describe what should appear"}))),
       field("Wardrobe", bind(one, "wardrobe", el("textarea", {style: "min-height:55px", maxlength: 600, placeholder: "Clothes, accessories and costume details"}))),
       field("Voice (optional — automatic MiniMax H3 voice if blank)", bind(one, "voice", el("input", {maxlength: 600, placeholder: "Accent, pitch, timbre and delivery, or leave empty"}))),
-      field("RefMod for this character (video only)", select(one, "refmod", {"":"No character RefMod", ...Object.fromEntries(PB.refmodsAvailable.map(m => [m.name, m.name]))})),
-      el("div", {class:"note"}, "This saved association adds the RefMod to scenes where this character is selected. RefMods apply to the whole Ref2VA clip, not one subject, and cannot be used by the still-image model that makes a reference sheet."),
+      S && S.refmod_render ? field("RefMod for this character (video only)", select(one, "refmod", {"":"No character RefMod", ...Object.fromEntries(PB.refmodsAvailable.map(m => [m.name, m.name]))})) : null,
+      S && S.refmod_render ? el("div", {class:"note"}, "This saved association adds the RefMod to scenes where this character is selected. RefMods apply to the whole Ref2VA clip, not one subject, and cannot be used by the still-image model that makes a reference sheet.") : null,
       pbPictureTools(one),
       pbSheet(one),
       el("div", { class: "row", style: "margin-top:8px" },
@@ -278,6 +278,7 @@ function pbCastPanel() {
 // The Studio creates RefMods from library media. For video, server.py expects
 // C.refmods = [{name, strength}], then validates saved names and the per-clip limit.
 function pbRefModsPanel() {
+  if (!(S && S.refmod_render)) return el("div", {class:"note"}, "RefMod rendering is not available in this build yet.");
   const names = PB.refmodsAvailable;
   const chosen = PB.refmods;
   const input = el("input", {type:"search", value:PB.refmodQuery,
@@ -373,6 +374,7 @@ async function pbSend() {
     if (!byRefmod.has(m.name)) byRefmod.set(m.name, {name:m.name, strength:Number(c.refmod_strength) || 1});
   }
   const selectedRefmods = [...byRefmod.values()];
+  if (selectedRefmods.length) return toast("RefMod rendering is not available in this build yet. Remove the selected RefMods to send the scene.");
   if (selectedRefmods.length && !(S && S.ref2va)) return toast("RefMods need MiniMax H3 Ref2VA installed and enabled in Create");
   if (selectedRefmods.length && !PB.refmodsLoaded) return toast("Load the RefMod library before sending");
   if (selectedRefmods.length && PB.refmodsError) return toast("Cannot verify RefMods: " + PB.refmodsError);
