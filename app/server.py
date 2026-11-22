@@ -38,6 +38,7 @@ from fastapi.staticfiles import StaticFiles
 HERE = Path(__file__).resolve().parent
 PACK = HERE.parent
 import windows_media
+import rea_video
 os.environ["PATH"] = windows_media.search_path(os.environ.get("PATH", ""))
 import windows_cuda  # noqa: E402  (the native Windows CUDA tier: the Spark's path on Windows, where it is fully installed)
 WINCUDA = windows_cuda.active()  # False off Windows without a look; on Windows it points PREFIX, SPARK_MODELS, ... first
@@ -1802,6 +1803,8 @@ def build(kind: str, params: dict, job_id: str, room: bool = True) -> tuple[list
             return windows_audio3.build(params, HOME, job_id)
         except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
             raise HTTPException(400, str(error)) from None
+    if kind == "rea_video":
+        return rea_video.build(params, HOME, job_id, inside)
     if (WINDOWS or WIN32) and windows_runtime.bounded(kind, params):
         if kind == "qualification":
             return windows_checks.build(HOME, params, job_id)
@@ -2418,7 +2421,7 @@ def perform(job: dict, worker: dict | None = None) -> None:
         with local_work:
             local_threads.add(current)
     try:
-        if worker is not None or job.get("remote") or job["kind"] in ("export", "soundtrack", "finish", "graphics", "hlg"):
+        if worker is not None or job.get("remote") or job["kind"] in ("export", "soundtrack", "finish", "graphics", "hlg", "rea_video"):
             return perform_job(job, worker)
         if not LOCAL_GPU_CHILD:
             hub.local.validate_head(local_gpus.inventory()["devices"])
@@ -2489,15 +2492,15 @@ def perform_job(job: dict, worker: dict | None = None) -> None:
                     job["log"] += "[studio] Native ComfyUI was unloaded before the bounded recipe.\n"
         # a Drama 3 server kept loaded after a voice take (voice.py) never stands beside a render here, nor MiniMax Music 3
         # kept loaded after a song (music.py): each is unloaded before any other job of this machine's queue
-        if job["kind"] not in ("voice", "export", "soundtrack", "finish", "graphics", "hlg") and worker is None and not job.get("remote"):
+        if job["kind"] not in ("voice", "export", "soundtrack", "finish", "graphics", "hlg", "rea_video") and worker is None and not job.get("remote"):
             if voice.release(f"a {job['kind']} job needs the GPU"):
                 job["log"] += "[tensorfold] Drama 3 was unloaded to give this job its memory\n"
-        if job["kind"] not in ("music", "export", "soundtrack", "finish", "graphics", "hlg") and worker is None and not job.get("remote"):
+        if job["kind"] not in ("music", "export", "soundtrack", "finish", "graphics", "hlg", "rea_video") and worker is None and not job.get("remote"):
             if music.release(f"a {job['kind']} job needs the GPU"):
                 job["log"] += "[tensorfold] MiniMax Music 3 was unloaded to give this job its memory\n"
         # NVIDIA Nemotron 3.5 Bolt (bolt.py), the Studio's brain engine: unloaded before this job when the job's measured
         # peak does not fit beside it (bolt_need), after the answers in flight; held until the queue is empty
-        if job["kind"] not in ("export", "soundtrack", "finish", "graphics", "hlg") and worker is None and not job.get("remote"):
+        if job["kind"] not in ("export", "soundtrack", "finish", "graphics", "hlg", "rea_video") and worker is None and not job.get("remote"):
             job["log"] += bolt.admit(job, lambda resident: bolt_need(job, resident))
         if job["kind"] in train.KINDS and worker is None:  # a LoRA run holds about 55 GB for hours: ComfyUI's models go first
             job["log"] += train_free(job)
@@ -2548,6 +2551,8 @@ def perform_job(job: dict, worker: dict | None = None) -> None:
             if job["kind"] in ("scout", "edit") + actions.KINDS:  # pictures under their readable names (take_names.named)
                 outputs = take_names.named(list(outputs))
             job["outputs"] = [relative(Path(p)) for p in outputs if Path(p).is_file()]
+            if job["kind"] == "rea_video" and len(job["outputs"]) != 2:
+                raise RuntimeError("rea-video did not write its VIDEO.md and report package")
             if not job["outputs"]:
                 raise RuntimeError("the script finished without writing its output")
             if job["kind"] == "scout":  # pictures a bounded Windows writer left under the job's id: their readable place
@@ -2647,6 +2652,11 @@ def public(job: dict) -> dict:
     except OSError:
         out["preview"] = out["preview_at"] = None
     return out
+
+
+@app.get("/api/rea-video")
+def rea_video_state() -> dict:
+    return rea_video.status()
 
 
 @app.get("/api/state")
@@ -2921,6 +2931,16 @@ def queue_job(body: dict) -> dict:
         if body.get("params") is not None and not isinstance(body["params"], dict):
             raise HTTPException(400, "params is an object of the job's settings")
         body = {**body, "params": sound.parameters(body["kind"], body.get("params") or {}, spark=SPARK)}
+    if body.get("kind") == "rea_video":
+        if WIN32:
+            raise HTTPException(501, "The Studio's rea-video job has not been checked on Windows.")
+        if body.get("placement") is not None:
+            raise HTTPException(400, "video breakdown runs on this Studio's machine")
+        if body.get("title") is not None and not isinstance(body["title"], str):
+            raise HTTPException(400, "title is text")
+        params = rea_video.parameters(body.get("params") or {}, inside)
+        rea_video.build(params, HOME, "check", inside)
+        return enqueue("rea_video", body.get("title") or "Break down " + Path(params["video"]).name, params)
     if WINDOWS or WIN32:
         if not isinstance(body.get("kind"), str) or not body["kind"]:
             raise HTTPException(400, "choose a job kind")

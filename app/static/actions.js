@@ -26,7 +26,7 @@ function actButtons(m) { const gfx = typeof gfxButtons === "function" ? gfxButto
   return (m.kind === "video" ? [one("upscale", "Upscale", "Make this clip larger and sharper: a latent upscale, then one light re-draw guided by the clip itself"),
                                one("remove", "Remove a person", "Take one person out of this clip and rebuild the background")]
     : [one("turnaround", "Turnaround", "Five views of this picture's subject, from the front round to the side or back")])
-    .concat(typeof revButtons === "function" ? revButtons(m) : [], typeof swapButtons === "function" ? swapButtons(m) : [], gfx); }  // Restyle, Extend, Fix (revise.js), then Add a title, Caption this clip (graphics.js)
+    .concat(typeof revButtons === "function" ? revButtons(m) : [], typeof swapButtons === "function" ? swapButtons(m) : [], typeof reaButtons === "function" ? reaButtons(m) : [], gfx); }  // Restyle, Extend, Fix (revise.js), then Add a title, Caption this clip (graphics.js)
 // a LoRA's card in the hub, when the LoRA belongs to an action: where it is used, in place of "Use on this clip"
 function actHubNote(r) { const kind = r.action, a = actOf(kind);
   return el("div", { class: "note" }, "Used by the Library’s “" + (a.title || kind) + "” action: " + (kind === "turnaround" ? "press Turnaround under a picture." : "press " + (a.title || kind) + " under a clip.")

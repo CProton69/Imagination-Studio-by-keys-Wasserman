@@ -64,6 +64,7 @@ try { const a = JSON.parse(localStorage.getItem("studio-look") || "null"), c = d
 <script src="zoom.js"></script>  <!-- a picture shown larger -->
 <script src="trashbin.js"></script>  <!-- films in the trash, put back -->
 <script src="motion.js"></script>
+<script src="rea-video.js"></script>
 <script src="actions.js"></script>
 <script src="builder.js"></script>
 <script src="captions.js"></script>
@@ -1196,7 +1197,8 @@ function libDraw(all_, bin) { const box = el("div", {}, el("h2", {}, "Library"))
     };
     updateDates();
     if (!ACT.state) actLoad().then(() => { if (tab === "Library") render(); });
-    put(box, el("div", { class: "note" }, tally, " files, grouped by file date, newest first. Open a dated section to browse older work. Click a path to copy it. Tick Select on cards, then Delete selected above; Select all follows the current filter and includes files in closed sections. The red trash icon deletes one. A deleted file is moved to the trash folder, not erased. Under a clip: Upscale, Remove a person, Restyle, Extend, Fix, Swap the character, Add a title and Caption this clip. Under a picture: Turnaround."), actPanel(),
+    if (typeof reaLoad === "function") reaLoad();
+    put(box, el("div", { class: "note" }, tally, " files, grouped by file date, newest first. Open a dated section to browse older work. Click a path to copy it. Tick Select on cards, then Delete selected above; Select all follows the current filter and includes files in closed sections. The red trash icon deletes one. A deleted file is moved to the trash folder, not erased. Under a clip: Upscale, Remove a person, Restyle, Extend, Fix, Swap the character, Break down, Add a title and Caption this clip. Under a picture: Turnaround."), actPanel(), typeof reaPanel === "function" ? reaPanel() : null, typeof reaLibrary === "function" ? reaLibrary() : null,
       typeof rcLibrary === "function" ? rcLibrary() : null, typeof finLibPanel === "function" ? finLibPanel() : null,  // Trailer from these (roughcut.js), Finish these (finish.js)
       capBar.results, grid);
   LIB.box.replaceChildren(...box.childNodes);
