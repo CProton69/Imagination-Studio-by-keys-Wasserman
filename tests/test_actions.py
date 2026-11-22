@@ -23,7 +23,11 @@ def studio(spark=True, installed=True):
                      "ComfyUI-H3-FaceFix-PixelAILabs",
                      "MaskVidExperiments", "ComfyUI-VOSR2"):
             (prefix / "ComfyUI/custom_nodes" / node).mkdir(parents=True)
-        for file in ("Workflows-Comfy/checkpoints/sam3.1_multiplex_fp16.safetensors",
+        (prefix / "face-site/ultralytics").mkdir(parents=True)
+        for file in ("Workflows-Comfy/ultralytics/bbox/face_yolov8n.pt",
+                     "Workflows-Comfy/vosr2/VOSR2/checkpoints/ema_model.safetensors",
+                     "Workflows-Comfy/vosr2/VOSR2/dinov2_vitl14.safetensors",
+                     "Workflows-Comfy/checkpoints/sam3.1_multiplex_fp16.safetensors",
                      "Workflows-Comfy/latent_upscale_models/minimax_h3_latent_upscaler_3d_bf16.safetensors",
                      "MiniMax-H3-Comfy/diffusion_models/minimax_h3_ref2va_pruned_bf16.safetensors"):
             (models / file).parent.mkdir(parents=True, exist_ok=True)
@@ -186,7 +190,7 @@ def test_not_installed_and_mac():
     (home / "loras/turnaround.mlx.safetensors").write_bytes(b"x")
     command, env, _ = build("turnaround", {"image": "uploads/a.png", "prompt": "turn <Picture 1> round"}, "j")
     assert env["TURNAROUND_LORA"].endswith("turnaround.mlx.safetensors") and env["PROMPT"] == "turn <Picture 1> round" and "PREFIX" not in env
-    assert all("oneshot-setup.sh --" in one["why"] for kind, one in state().items() if kind not in ("turnaround", "hlg")) and state()["turnaround"]["ready"]
+    assert all("oneshot-setup.sh --" in one["why"] for kind, one in state().items() if kind not in ("turnaround", "hlg", "facefix")) and state()["turnaround"]["ready"]
     assert "oneshot-setup.sh --upscale" in refused(build, "upscale", {"video": "renders/c.mp4"}, "j")
     assert "oneshot-setup.sh --remove" in refused(build, "mask", {"video": "renders/c.mp4", "person": "x"}, "j")
     _, _, _, _, state = studio()

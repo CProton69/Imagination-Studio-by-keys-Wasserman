@@ -32,14 +32,19 @@ import take_names  # a take's readable folder and file names, beside this file
 import hlg
 import windows_cuda  # noqa: E402  (the native Windows CUDA tier, beside this file)
 
-KINDS = ("turnaround", "upscale", "mask", "remove", "hlg")
+KINDS = ("turnaround", "upscale", "mask", "remove", "hlg", "facefix")
 PRESETS = Path(__file__).with_name("lora-presets.json")
 # the LoRA each action is built on (its id in the hub), and what the action is called on the page
-LORA = {"turnaround": "turnaround", "upscale": "video-upscaler", "remove": "person-remover", "mask": None, "hlg": None}
-TITLES = {"turnaround": "Turnaround sheet", "upscale": "Upscale", "remove": "Remove a person", "mask": "Find a person", "hlg": "keys-HDR LORA"}
+LORA = {"turnaround": "turnaround", "upscale": "video-upscaler", "remove": "person-remover", "mask": None, "hlg": None, "facefix": None}
+TITLES = {"turnaround": "Turnaround sheet", "upscale": "Upscale", "remove": "Remove a person", "mask": "Find a person", "hlg": "keys-HDR LORA", "facefix": "Fix faces"}
 SIZES = (512, 1024, 2048)                 # a turnaround view's side: 512 is what the LoRA was trained at
 MEGAPIXELS = (1.0, 2.0, 3.0, 4.0)         # an upscale's area: 2 is about 1920x1080
 WINDOWS = (22, 39, 56)                    # the remover's window: 22 is the author's proven default
+CANVASES = (512, 640, 768)
+FACE_PICKS = {"largest": "largest_face", "smallest": "smallest_face", "left": "left_most", "right": "right_most", "centre": "centre_most"}
+FACES = 4
+REGULAR_FACE_MODELS = {"minimax_h3_ref2va_pruned_bf16.safetensors", "minimax_h3_ref2va_pruned_int8_convrot.safetensors"}
+
 # On a Mac: the node pack and the files under $MAC_COMFY_MODELS each action needs, and the option that installs them
 X265 = {}                                 # whether this machine's ffmpeg has libx265: asked once, with a time limit
 MAC_NODES = {"upscale": "ComfyUI-H3-Video-Upsampler", "remove": "h3-relay", "mask": "h3-relay"}
@@ -58,6 +63,14 @@ def attach(home: Path, pack: Path, spark: bool, inside, relative, windows: bool 
     router = APIRouter()
     prefix = Path(os.environ.get("PREFIX", Path.home() / ".local/opt/tensorfold-studio"))
     models = Path(os.environ.get("SPARK_MODELS", Path.home() / "spark-studio-models"))
+
+    def face_models() -> list[str]:
+        if not spark or windows_cuda.active():
+            return []
+        extra = Path(os.environ.get("STUDIO_EXTRA_VIDEO_MODELS", Path.home() / "Documents/Workspace/ComfyUI-Easy-Install/ComfyUI/models/diffusion_models"))
+        folders = (models / "MiniMax-H3-Comfy/diffusion_models", extra)
+        return sorted({one.name for folder in folders for one in folder.glob("*.safetensors")
+                       if one.is_file() and "ref2va" in one.name.lower() and one.name not in REGULAR_FACE_MODELS})
 
     def recipe(lora_id: str) -> dict:
         return next((r for r in json.loads(PRESETS.read_text()) if r["id"] == lora_id), {})
@@ -91,6 +104,8 @@ def attach(home: Path, pack: Path, spark: bool, inside, relative, windows: bool 
                 except (OSError, subprocess.SubprocessError):
                     return "ffmpeg did not answer: try again."
             return "" if X265["ok"] else "The HDR finish writes HEVC, and this machine's ffmpeg was built without libx265."
+        if kind == "facefix" and (not spark or windows_cuda.active()):
+            return "Fix faces runs on a Linux machine or DGX Spark for now."
         if not spark:
             model = Path(os.environ.get("H3_MODEL_DIR", Path.home() / "h3-models/MiniMax-H3"))
             if not (model / "Ref2VA/transformer").is_dir():
@@ -114,7 +129,8 @@ def attach(home: Path, pack: Path, spark: bool, inside, relative, windows: bool 
                 "facefix": ["ComfyUI-H3-FaceRefine", "ComfyUI-H3-FaceFix-PixelAILabs", "MaskVidExperiments", "ComfyUI-VOSR2"]}[kind]
         files = {"upscale": ["latent_upscale_models/minimax_h3_latent_upscaler_3d_bf16.safetensors"],
                  "remove": ["checkpoints/sam3.1_multiplex_fp16.safetensors"],
-                 "mask": ["checkpoints/sam3.1_multiplex_fp16.safetensors"]}.get(kind, [])
+                 "mask": ["checkpoints/sam3.1_multiplex_fp16.safetensors"],
+                 "facefix": ["checkpoints/sam3.1_multiplex_fp16.safetensors", "ultralytics/bbox/face_yolov8n.pt", "vosr2/VOSR2/checkpoints/ema_model.safetensors", "vosr2/VOSR2/dinov2_vitl14.safetensors"]}.get(kind, [])
         native = windows_cuda.active()
         if kind == "facefix" and (any(not (nodes / n).is_dir() for n in need) or any(not (models / "Workflows-Comfy" / f).is_file() for f in files)
                                   or not (prefix / "face-site/ultralytics").is_dir()):
@@ -318,7 +334,7 @@ def attach(home: Path, pack: Path, spark: bool, inside, relative, windows: bool 
         return command, env, [str(target), str(folder / "person_mask.mp4"), str(folder / "person_clean.png")]
 
     def title(kind: str, params: dict) -> str:
-        name = Path(str(params.get("image") or params.get("video") or "")).name
+        name = Path(str((params.get("video") if kind == "facefix" else None) or params.get("image") or params.get("video") or "")).name
         return f"{TITLES[kind]}: {name}" if name else TITLES[kind]
 
     def source_of(kind: str, params: dict) -> str | None:
