@@ -357,3 +357,26 @@ def test_the_actions_load_the_text_encoder_a_small_card_kept(monkeypatch):
     else:
         assert False, "a partial encoder must be refused before ComfyUI gets the graph"
 
+def test_turnaround_uses_readable_vae_when_fp16_link_is_broken(tmp_path, monkeypatch):
+    """ComfyUI may list a dead symlink, then reject it when the render starts."""
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "spark"))
+    import spark_workflows as W
+
+    folder = tmp_path / "FastH3-Comfy" / "vae"
+    folder.mkdir(parents=True)
+    (folder / "minimax_h3_video_vae_fp16.safetensors").symlink_to(tmp_path / "missing-fp16.safetensors")
+    (folder / "minimax_h3_video_vae_int8_convrot.safetensors").write_bytes(b"readable")
+    monkeypatch.setattr(W.sg, "MODELS", tmp_path)
+    monkeypatch.setattr(W.sg, "PREFIX", tmp_path / "prefix")
+    monkeypatch.delenv("SPARK_VAE", raising=False)
+    monkeypatch.setattr(W, "listed", lambda loader, field: [
+        "minimax_h3_video_vae_fp16.safetensors", "minimax_h3_video_vae_int8_convrot.safetensors"])
+    assert W.still_vae() == "minimax_h3_video_vae_int8_convrot.safetensors"
+    monkeypatch.setenv("SPARK_VAE", "minimax_h3_video_vae_fp16.safetensors")
+    try:
+        W.still_vae()
+    except SystemExit as error:
+        assert "no readable VAE file" in str(error)
+    else:
+        assert False, "an explicit broken VAE must be refused before the render"

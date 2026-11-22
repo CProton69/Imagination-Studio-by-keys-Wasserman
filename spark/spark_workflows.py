@@ -267,10 +267,23 @@ def loaders(w: dict, vae: str | None = None) -> None:
 
 
 def still_vae() -> str:
-    """The fp16 video decoder for still pictures when it is installed (the 8-bit one is the clips' default)."""
+    """Use a readable video VAE for still pictures; a listed symlink may be broken."""
 
-    wanted = os.environ.get("SPARK_VAE") or "minimax_h3_video_vae_fp16.safetensors"
-    return wanted if wanted in listed("VAELoader", "vae_name") else sg.H3_VAE
+    have = listed("VAELoader", "vae_name")
+    folders = (sg.MODELS / "FastH3-Comfy" / "vae", sg.MODELS / "vae", sg.PREFIX / "ComfyUI" / "models" / "vae")
+    def available(name: str) -> bool:
+        return name in have and any((folder / name).is_file() for folder in folders)
+
+    explicit = os.environ.get("SPARK_VAE")
+    if explicit:
+        if available(explicit):
+            return explicit
+        sys.exit(f"SPARK_VAE names {explicit}, but ComfyUI has no readable VAE file with that name")
+    for name in ("minimax_h3_video_vae_fp16.safetensors", sg.H3_VAE,
+                 "minimax_h3_video_vae_int8_convrot.safetensors"):
+        if available(name):
+            return name
+    sys.exit("ComfyUI has no readable MiniMax H3 video VAE for the turnaround")
 
 
 # ---------------------------------------------------------------------------------------------------------- turnaround
