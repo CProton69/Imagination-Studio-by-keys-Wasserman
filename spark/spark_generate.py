@@ -139,6 +139,29 @@ if MAC:
     H3_VAE = MAC_FILES["vae"]
 QWEN = "qwen_image_2.1_turbo_bf16.safetensors"   # Qwen-Image-2.1-Turbo, the 8-step checkpoint
 QWEN_BASE = "qwen_image_2.1_bf16.safetensors"    # the 40-step base model, only when it has been downloaded
+
+def ready_h3_text_encoder() -> str:
+    """The complete H3 text encoder ComfyUI can load, including one on an extra model path.
+
+    A small-card install may keep its NVFP4 file elsewhere while the normal
+    FastH3-Comfy link has disappeared. ComfyUI's own list is authoritative.
+    """
+
+    have = call("/object_info/CLIPLoader")["CLIPLoader"]["input"]["required"]["clip_name"][0]
+    if H3_TEXT in have:
+        return H3_TEXT
+    regular = "qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
+    if H3_TEXT != regular:
+        sys.exit(f"ComfyUI does not list the selected H3 text encoder {H3_TEXT}")
+    complete = [name for name in have
+                if name.rsplit("/", 1)[-1].startswith("qwen3vl_32b_minimax_h3_")
+                and name.endswith(".safetensors") and "tail" not in name.lower()]
+    if len(complete) == 1:
+        return complete[0]
+    if not complete:
+        sys.exit("ComfyUI does not list a complete MiniMax H3 text encoder")
+    sys.exit("ComfyUI lists several MiniMax H3 text encoders; choose one in the Studio before rendering")
+
 QWEN_TEXT = "qwen3vl_8b_int8_convrot.safetensors"
 QWEN_VAE = "qwen_image_2.1_vae_bf16.safetensors"
 # the schedule saved with the Turbo checkpoint (model_index.json, sample_sigmas), then zero
@@ -749,7 +772,7 @@ def reference(args) -> None:
     model = ["1", 0]
     w = {
         "1": {"class_type": "UNETLoader", "inputs": {"unet_name": name, "weight_dtype": "default"}},
-        "3": {"class_type": "CLIPLoader", "inputs": {"clip_name": H3_TEXT, "type": "minimax", "device": "default"}},
+        "3": {"class_type": "CLIPLoader", "inputs": {"clip_name": ready_h3_text_encoder(), "type": "minimax", "device": "default"}},
         "4": {"class_type": "VAELoader", "inputs": {"vae_name": H3_VAE}},
         "5": {"class_type": "VAELoader", "inputs": {"vae_name": H3_AUDIO_VAE}},
         "6": {"class_type": "MiniMaxH3ReferenceToVideo",
@@ -896,7 +919,7 @@ def video(args) -> None:
         "1": {"class_type": "UNETLoader", "inputs": {"unet_name": H3_FL2VA if base else FASTH3[args.weights], "weight_dtype": "default"}},
         # FastH3's schedule: video shift 10, audio shift 3 (fastvideo_inference.json); MiniMax H3's own: 12 and 3
         "2": {"class_type": "MiniMaxH3SigmaShift", "inputs": {"model": ["1", 0], "shift_video": 12.0 if base else 10.0, "shift_audio": 3.0}},
-        "3": {"class_type": "CLIPLoader", "inputs": {"clip_name": H3_TEXT, "type": "minimax", "device": "default"}},
+        "3": {"class_type": "CLIPLoader", "inputs": {"clip_name": ready_h3_text_encoder(), "type": "minimax", "device": "default"}},
         "4": {"class_type": "VAELoader", "inputs": {"vae_name": H3_VAE}},
         "5": {"class_type": "VAELoader", "inputs": {"vae_name": H3_AUDIO_VAE}},
         "6": {"class_type": "MiniMaxH3ImageToVideo",
