@@ -439,6 +439,24 @@ class Saved(dict):
 HEADROOM_DB, PEAK_DBFS, SOUND_BITRATE = 12, -1.0, "256k"
 
 
+def release_before_decode(workflow: dict, enabled: bool) -> None:
+    """Opt in to unloading H3 after sampling, before both video and audio decode."""
+
+    if not enabled:
+        return
+    try:
+        node = call("/object_info/StudioDecodeRelease").get("StudioDecodeRelease")
+    except OSError:
+        node = None
+    if not node:
+        sys.exit("the Studio decode-release node is unavailable: restart this Studio's ComfyUI server")
+    workflow["98"] = {"class_type": "StudioDecodeRelease", "inputs": {"samples": ["12", 0]}}
+    for key in ("13", "14"):
+        if workflow.get(key, {}).get("inputs", {}).get("samples") == ["12", 0]:
+            workflow[key]["inputs"]["samples"] = ["98", 0]
+    print("[tensorfold] releasing the H3 model before VAE decode (experimental)", flush=True)
+
+
 def save_sound(workflow: dict, audio: list, prefix: str) -> None:
     """Add the lossless copy of the decoded sound to a workflow (nodes 17 and 18)."""
 
@@ -832,6 +850,7 @@ def reference(args) -> None:
     w["12"] = {"class_type": "SamplerCustomAdvanced",
                "inputs": {"noise": ["8", 0], "guider": ["11", 0], "sampler": ["9", 0], "sigmas": ["10", 0],
                           "latent_image": ["6", 1]}}
+    release_before_decode(w, args.decode_unload)
     save_sound(w, ["14", 0], w["16"]["inputs"]["filename_prefix"] + "_sound")
     cropped = crop_frames(w, args.crop, args.width, args.height) if args.crop else True
     kind = "Ref2VA with the Turbo adapter" if mode == "turbo" else "Ref2VA"
@@ -972,6 +991,7 @@ def video(args) -> None:
                                                           "denoise": 1.0}}
     w["11"] = {"class_type": "CFGGuider", "inputs": {"model": model, "positive": ["6", 0], "negative": ["7", 0],
                                                      "cfg": 1.0}}
+    release_before_decode(w, args.decode_unload)
     save_sound(w, ["14", 0], w["16"]["inputs"]["filename_prefix"] + "_sound")
     cropped = crop_frames(w, args.crop, args.width, args.height) if args.crop else True
     attention = f"sparse attention {sparsity}" if sparsity > 0 else "dense attention"
@@ -1517,6 +1537,8 @@ def main() -> None:
     v.add_argument("--last-frame", default="", help="an image the clip ends on (with or without --first-frame)")
     v.add_argument("--text-encoder", default=os.environ.get("TEXT_ENCODER") or "regular",
                    help="regular, or the file name of another MiniMax H3 text encoder in ComfyUI's text_encoders folder")
+    v.add_argument("--decode-unload", action="store_true", default=os.environ.get("STUDIO_DECODE_UNLOAD") == "1",
+                   help="experimental: unload H3 after sampling, before the video and audio VAEs decode")
     v.add_argument("--crop", default="", help="WxH centre crop of the finished clip")
     v.add_argument("--weights", choices=sorted(FASTH3), default=os.environ.get("SPARK_WEIGHTS", "bf16"))
     v.add_argument("--engine", choices=("tensorfold", "comfy"),

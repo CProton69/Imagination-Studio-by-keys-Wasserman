@@ -1886,6 +1886,10 @@ def build(kind: str, params: dict, job_id: str, room: bool = True) -> tuple[list
     chosen, _ = custom(params)
     if (preset not in PRESETS and preset != "custom") or quality not in QUALITIES:
         raise HTTPException(400, "unknown preset or quality")
+    if "decode_unload" in params and not isinstance(params["decode_unload"], bool):
+        raise HTTPException(400, "decode_unload is true or false")
+    if params.get("decode_unload") and (kind != "video" or not SPARK or WINDOWS or WIN32 or WINCUDA):
+        raise HTTPException(400, "release before decode is for single video clips on Linux CUDA")
     sized = {**(PRESETS[preset][2] if preset in PRESETS else {}), **chosen}
     # any length the model takes: "frames" (17n + 5), or "seconds" brought to the nearest such count
     frames = clip_frames(params, sized)
@@ -1893,6 +1897,8 @@ def build(kind: str, params: dict, job_id: str, room: bool = True) -> tuple[list
     target = inside(target)
     target.parent.mkdir(parents=True, exist_ok=True)
     env = {"SEED": seed, "FRAMES": frames, **(PRESETS[preset][2] if preset in PRESETS else {}), **QUALITIES[quality][1]}
+    if params.get("decode_unload"):
+        env["STUDIO_DECODE_UNLOAD"] = "1"
     fast_h3 = SPARK or env.get("ENGINE") == "fasth3"
     prompt = params["prompt"]
     image = params.get("image")
