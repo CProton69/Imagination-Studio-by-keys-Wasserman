@@ -309,3 +309,23 @@ def test_a_small_card_offers_the_other_builds_of_the_video_model(monkeypatch, tm
             server.own_transformer(bad)
     monkeypatch.setenv("STUDIO_MEMORY_GUARD", "strict")
     assert server.transformers() == {"fasth3_omniref_int8.safetensors": "frames", w4a8: "references"}
+
+def test_video_uses_encoder_comfyui_lists_when_model_link_is_missing(monkeypatch):
+    """A RefMod or regular H3 graph must not send a missing encoder to ComfyUI."""
+
+    import spark_generate
+
+    regular = "qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
+    nvfp4 = "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
+    tail = "qwen3vl_32b_minimax_h3_generation_tail_50_63_int8_convrot.safetensors"
+    monkeypatch.setattr(spark_generate, "H3_TEXT", regular)
+    monkeypatch.setattr(spark_generate, "call", lambda path: {"CLIPLoader": {"input": {"required": {
+        "clip_name": [[tail, nvfp4]]}}}})
+    assert spark_generate.ready_h3_text_encoder() == nvfp4
+    monkeypatch.setattr(spark_generate, "H3_TEXT", "someone_else.safetensors")
+    try:
+        spark_generate.ready_h3_text_encoder()
+    except SystemExit as error:
+        assert "selected H3 text encoder" in str(error)
+    else:
+        assert False, "an unavailable explicit encoder must be refused"
