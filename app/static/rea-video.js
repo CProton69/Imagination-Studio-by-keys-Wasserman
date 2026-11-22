@@ -5,7 +5,9 @@ async function reaLoad() {
   if (REA.status || REA.loading) return;
   REA.loading = true;
   try { REA.status = await api("/api/rea-video"); }
-  catch (e) { REA.status = { ready: false, why: e.message }; }
+  catch (e) { REA.status = { ready: false, why: e.message === "Not Found"
+    ? "Studio's running server has not loaded video breakdowns yet. Let the current render finish, then restart Studio and check again."
+    : e.message }; }
   REA.loading = false;
   if (tab === "Library") render();
 }
@@ -26,7 +28,9 @@ function reaPanel() {
       el("button", { class: "small", onclick: () => { REA.open = null; render(); } }, "Close")),
     el("p", { class: "note" }, source),
     el("p", { class: "note" }, "rea-video finds shot boundaries, visual evidence, pacing and a remake outline. It runs locally through Studio's queue and writes VIDEO.md plus a report package. It does not render a new clip or send this video to a vision service."),
-    !state.ready ? el("p", { class: "note", style: "color:var(--warn)" }, state.why) : null,
+    !state.ready ? el("div", { class: "row", style: "align-items:center" },
+      el("p", { class: "note fit", style: "color:var(--warn)" }, state.why),
+      el("button", { class: "small", onclick: () => { REA.status = null; reaLoad(); } }, "Check again")) : null,
     el("label", { style: "display:flex;gap:6px;align-items:center" },
       bind(REA, "audio", el("input", { type: "checkbox", style: "width:auto" })),
       "Separate voice, music and effects (first run downloads about 216 MB of models)"),

@@ -12,8 +12,9 @@ bash scripts/setup-rea-video.sh
 
 The script pins rea-video at commit `90eae960d13643e24a0066d6f569df7f390f0567` and installs its dependencies into
 `$PREFIX/rea-video-venv` (default `~/.local/opt/tensorfold-studio/rea-video-venv`). It needs `uv`, Python 3.10 or newer,
-`ffmpeg` and `ffprobe`. Restart or refresh the Studio page after installation. The Studio's rendering environment
-keeps its own dependencies, including its existing OpenCV choices.
+`ffmpeg` and `ffprobe`. After adding this feature to an already running Studio, let any render finish and restart
+Studio so its API loads the new action. Refreshing the page alone loads only the new button. The Studio's rendering
+environment keeps its own dependencies, including its existing OpenCV choices.
 
 In **Library**, press **Break down** under a clip. The default analysis is local and does not call a video-capable
 cloud model. You can choose **Separate voice, music and effects**; its first run downloads about 216 MB of audio
