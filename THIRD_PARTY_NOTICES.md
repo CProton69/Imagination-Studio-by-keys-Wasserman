@@ -113,6 +113,15 @@ those nodes through ComfyUI's HTTP API as a separate program. The three LoRAs co
 - The LoRA: `matlod/minimax-h3-turnaround` on Hugging Face, a Model Derivative of MiniMax H3 under the MiniMax H3
   Community License Agreement.
 
+## H3 Character Sheet Designer, by hideout / ukr8b3g-cmyk
+
+- Node source: <https://github.com/ukr8b3g-cmyk/H3-Character-Sheet-Designer>, commit
+  `5865618a3dd6964a53baa91dbb9b8bb447520f20`. MIT License. Installed separately and used unmodified through
+  the Studio's ComfyUI; its code and example artwork are not copied into this repository.
+- The H3 Image character sheet action sends the node's generated prompt, canvas size, and optional layout guide to
+  ComfyUI's MiniMax H3 Image Conditioning with the user's character picture as a native reference. Model weights
+  remain subject to the MiniMax H3 Community License Agreement.
+
 ## H3 Video Upsampler, by dntpi (Sandpies)
 
 - ComfyUI node: <https://github.com/dntpi/ComfyUI-H3-Video-Upsampler>, commit

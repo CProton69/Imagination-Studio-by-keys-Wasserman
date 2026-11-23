@@ -1333,6 +1333,22 @@ def h3image_workflow(args, text: str, seed: int) -> dict:
     }
 
 
+def h3sheet_workflow(args, reference_name: str, seed: int) -> dict:
+    """The author's sheet designer supplies prompt, canvas and optional layout to H3 Image's own conditioning."""
+
+    w = h3image_workflow(args, "character sheet", seed)
+    w["20"] = {"class_type": "LoadImage", "inputs": {"image": reference_name}}
+    w["21"] = {"class_type": "MiniMaxH3ImageCharacterSheetDesigner", "inputs": {
+        "state_json": args.sheet_state, "character_image": ["20", 0],
+        "use_layout_image": bool(args.sheet_layout), "style": args.sheet_style}}
+    inputs = w["5"]["inputs"]
+    inputs.update(prompt=["21", 0], width=["21", 1], height=["21", 2],
+                  **{"images.image_0": ["21", 4]})
+    if args.sheet_layout:
+        inputs["images.image_1"] = ["21", 3]
+    return w
+
+
 # MiniMax Music 3 (lyrics and a style caption to a song with sung vocals, 44.1 kHz stereo) on ComfyUI's own nodes, the
 # layout of ComfyUI's blueprint "Text to Music (MiniMax Music 3)": the text encoder runs MiniMax's autoregressive
 # model (the acoustic conditioning, and where the song ends), the DiT fills it in over 30 Euler steps at CFG 1.7 against
@@ -1640,18 +1656,28 @@ def image(args) -> None:
             sys.exit(f"--{name} must be a multiple of 16, got {value}")
     flux3 = args.model in FLUX3
     ensure_server("flux3" if flux3 else "moss" if args.model in MOSS else "h3image" if args.model in H3IMAGE else "image")
-    text = prompt_of(args)
+    if args.sheet_reference and args.model != "h3-image":
+        sys.exit("--sheet-reference needs --model h3-image")
+    text = "" if args.sheet_reference else prompt_of(args)
     target = Path(args.output)
     seeds = [int(s) for s in args.seeds.split(",")] if args.seeds else [args.seed]
     if args.model in H3IMAGE:
-        for seed in seeds:
-            item, seconds = render(h3image_workflow(args, text, seed), "12")
-            out = target.with_name(f"{target.stem}_s{seed}{target.suffix}") if args.seeds else target
-            fetch(item, out)
-            print("[tensorfold] " + json.dumps({"output": str(out), "engine": ENGINE, "model": args.model,
-                                                "weights": h3image_unet(args.model), "width": args.width,
-                                                "height": args.height, "seed": seed,
-                                                "steps": args.steps or H3IMAGE[args.model][1], "total_s": round(seconds, 1)}), flush=True)
+        try:
+            reference_name = upload_or_link(args.sheet_reference) if args.sheet_reference else ""
+            for seed in seeds:
+                workflow = (h3sheet_workflow(args, reference_name, seed) if reference_name else
+                            h3image_workflow(args, text, seed))
+                item, seconds = render(workflow, "12")
+                out = target.with_name(f"{target.stem}_s{seed}{target.suffix}") if args.seeds else target
+                fetch(item, out)
+                print("[tensorfold] " + json.dumps({"output": str(out), "engine": ENGINE, "model": args.model,
+                                                    "weights": h3image_unet(args.model),
+                                                    "size": "sheet designer" if reference_name else [args.width, args.height],
+                                                    "seed": seed, "steps": args.steps or H3IMAGE[args.model][1],
+                                                    "total_s": round(seconds, 1)}), flush=True)
+        finally:
+            if args.sheet_reference:
+                forget_uploads()
         return
     if args.model in MOSS:
         for seed in seeds:
@@ -1755,6 +1781,10 @@ def main() -> None:
     i.add_argument("--steps", type=int, default=None, help="Qwen's base model (40), FLUX3-K (16 Fast, 50 Full) or MOSS-Image (25)")
     i.add_argument("--cfg", type=float, default=4.0, help="base model only")
     i.add_argument("--negative", default="", help="Qwen's base model; MOSS-Image (default: its template's)")
+    i.add_argument("--sheet-reference", default="", help="character picture for the H3 Image character sheet designer")
+    i.add_argument("--sheet-state", default="", help="the designer's JSON state")
+    i.add_argument("--sheet-style", default="none", help="the designer's rendering style")
+    i.add_argument("--sheet-layout", action="store_true", help="pass the designer's layout guide as a second image")
     i.set_defaults(run=image)
     m = kinds.add_parser("music", help="MiniMax Music 3: lyrics and a style caption to a song (oneshot-setup-spark.sh --music)")
     m.add_argument("--caption", default=""); m.add_argument("--caption-file", default="")

@@ -23,6 +23,12 @@ def studio(spark=True, installed=True):
                      "ComfyUI-H3-FaceFix-PixelAILabs",
                      "MaskVidExperiments", "ComfyUI-VOSR2"):
             (prefix / "ComfyUI/custom_nodes" / node).mkdir(parents=True)
+        designer = prefix / "ComfyUI/custom_nodes/H3-Character-Sheet-Designer/h3_character_sheet/minimax_image_node.py"
+        designer.parent.mkdir(parents=True)
+        designer.write_text("# test node\n")
+        core = prefix / "ComfyUI/comfy_extras/nodes_minimax_h3.py"
+        core.parent.mkdir(parents=True)
+        core.write_text("# test H3 Image conditioning\n")
         (prefix / "face-site/ultralytics").mkdir(parents=True)
         for file in ("Workflows-Comfy/checkpoints/sam3.1_multiplex_fp16.safetensors",
                      "Workflows-Comfy/ultralytics/bbox/face_yolov8n.pt",
@@ -32,6 +38,12 @@ def studio(spark=True, installed=True):
                      "MiniMax-H3-Comfy/diffusion_models/minimax_h3_ref2va_pruned_bf16.safetensors"):
             (models / file).parent.mkdir(parents=True, exist_ok=True)
             (models / file).write_bytes(b"x")
+        for file in ("diffusion_models/minimax_h3_image_pruned_w4a8.safetensors",
+                     "text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+                     "vae/minimax_h3_image_vae_fp16.safetensors"):
+            target = models / "MiniMax-H3-Image-Comfy" / file
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(b"x")
         for lora in ("turnaround", "video-upscaler", "person-remover"):
             (home / "loras" / f"{lora}.safetensors").write_bytes(b"x")
     os.environ.update(PREFIX=str(prefix), SPARK_MODELS=str(models))
@@ -76,6 +88,39 @@ def test_turnaround_checks():
     assert "choose a picture" in refused(build, "turnaround", {}, "j")
     assert "not a picture" in refused(build, "turnaround", {"image": "renders/c.mp4"}, "j")
     assert "outside" in refused(build, "turnaround", {"image": "/etc/passwd"}, "j")
+
+
+def test_h3_image_sheet_uses_the_designer_and_native_image_references(monkeypatch):
+    import json
+    from types import SimpleNamespace
+
+    _, build, title, source, state = studio()
+    params = {"image": "uploads/a.png", "preset": "head", "expressions": True, "layout": True,
+              "style": "anime", "resolution": "high", "seed": 42}
+    command, _, outputs = build("h3sheet", params, "sheet1")
+    assert command[2:5] == ["image", "--model", "h3-image"]
+    assert command[command.index("--sheet-reference") + 1].endswith("uploads/a.png")
+    assert command[command.index("--sheet-style") + 1] == "anime"
+    assert "--sheet-layout" in command and outputs[0].endswith("scouts/sheet1/h3_character_sheet.png")
+    saved = json.loads(command[command.index("--sheet-state") + 1])
+    assert saved["schema_version"] == 3 and saved["expression_sheet"] is True and len(saved["views"]) == 6
+    assert title("h3sheet", params) == "H3 Image character sheet: a.png"
+    assert source("h3sheet", params) == "uploads/a.png"
+    assert state()["h3sheet"]["ready"]
+    assert "expressions need" in refused(build, "h3sheet", {**params, "preset": "five"}, "x")
+    assert "listed character sheet" in refused(build, "h3sheet", {**params, "preset": "unknown"}, "x")
+
+    sys.path.insert(0, str(PACK / "spark"))
+    import spark_generate as sg
+    monkeypatch.setattr(sg, "h3image_unet", lambda *_: "h3-image.safetensors")
+    monkeypatch.setattr(sg, "h3image_text", lambda: "encoder.safetensors")
+    args = SimpleNamespace(model="h3-image", width=2048, height=2048, steps=None,
+                           sheet_state=json.dumps(saved), sheet_style="anime", sheet_layout=True)
+    graph = sg.h3sheet_workflow(args, "reference.png", 42)
+    assert graph["21"]["class_type"] == "MiniMaxH3ImageCharacterSheetDesigner"
+    assert graph["5"]["inputs"]["images.image_0"] == ["21", 4]
+    assert graph["5"]["inputs"]["images.image_1"] == ["21", 3]
+    assert graph["12"]["inputs"]["positive"] == ["5", 0]
 
 
 def test_upscale():
@@ -189,7 +234,8 @@ def test_not_installed_and_mac():
     (home / "loras/turnaround.mlx.safetensors").write_bytes(b"x")
     command, env, _ = build("turnaround", {"image": "uploads/a.png", "prompt": "turn <Picture 1> round"}, "j")
     assert env["TURNAROUND_LORA"].endswith("turnaround.mlx.safetensors") and env["PROMPT"] == "turn <Picture 1> round" and "PREFIX" not in env
-    assert all("oneshot-setup.sh --" in one["why"] for kind, one in state().items() if kind not in ("turnaround", "hlg", "facefix")) and state()["turnaround"]["ready"]
+    assert all("oneshot-setup.sh --" in one["why"] for kind, one in state().items() if kind not in ("turnaround", "hlg", "facefix", "h3sheet")) and state()["turnaround"]["ready"]
+    assert "Linux ComfyUI" in state()["h3sheet"]["why"]
     assert "Linux machine or DGX Spark" in state()["facefix"]["why"]   # not wired on a Mac's ComfyUI
     assert "oneshot-setup.sh --upscale" in refused(build, "upscale", {"video": "renders/c.mp4"}, "j")
     assert "oneshot-setup.sh --remove" in refused(build, "mask", {"video": "renders/c.mp4", "person": "x"}, "j")

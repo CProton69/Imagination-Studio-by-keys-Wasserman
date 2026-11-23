@@ -2698,6 +2698,20 @@ def rea_video_state() -> dict:
     return rea_video.status()
 
 
+@app.get("/api/rea-video/reports/{job_id}")
+def rea_video_report(job_id: str) -> dict:
+    job = jobs.get(job_id)
+    if not job or job.get("kind") != "rea_video" or job.get("status") != "done":
+        raise HTTPException(404, "no completed video breakdown with that job id")
+    outputs = job.get("outputs") or []
+    if len(outputs) < 2:
+        raise HTTPException(404, "this breakdown has no report package")
+    archive = inside(outputs[1])
+    if archive.suffix.lower() != ".zip" or archive.parent != HOME.resolve() / "analysis":
+        raise HTTPException(400, "this breakdown has no Studio report package")
+    return rea_video.report(archive)
+
+
 @app.get("/api/state")
 def state() -> dict:
     # start: the canvas a first frame is put on (scouts are made at it), which the page fits a picture to
@@ -3286,6 +3300,13 @@ async def upload(file: UploadFile = File(...)) -> dict:
     target = HOME / "uploads" / f"{uuid.uuid4().hex[:10]}{suffix}"
     with open(target, "wb") as handle:
         shutil.copyfileobj(file.file, handle)
+    # Uploaded names become UUIDs, so remember a descriptive original name before it is lost.
+    name = re.sub(r"[^a-z0-9]+", "_", Path(file.filename or "").stem.lower()).strip("_")
+    if suffix in (".png", ".jpg", ".jpeg", ".webp") and any(word in name for word in ("character_sheet", "charsheet", "turn_sheet", "turnaround_sheet")):
+        with lock:
+            marked = library_marked_sheets()
+            marked.add(relative(target))
+            save_library_marked_sheets(marked)
     return {"path": relative(target)}
 
 
@@ -3354,11 +3375,29 @@ def fit_picture(body: dict) -> dict:
     return {"path": relative(target)}
 
 
+LIBRARY_SHEET_TAGS = HOME / "library-sheets.json"
+
+
+def library_marked_sheets() -> set[str]:
+    try:
+        paths = json.loads(LIBRARY_SHEET_TAGS.read_text())
+        return set(paths) if isinstance(paths, list) else set()
+    except (OSError, ValueError, TypeError):
+        return set()
+
+
+def save_library_marked_sheets(paths: set[str]) -> None:
+    fresh = LIBRARY_SHEET_TAGS.with_name(f"{LIBRARY_SHEET_TAGS.name}.{uuid.uuid4().hex[:8]}.new")
+    fresh.write_text(json.dumps(sorted(paths), indent=1))
+    fresh.replace(LIBRARY_SHEET_TAGS)
+
+
 @app.get("/api/library")
 def library() -> list[dict]:
     """Every clip, still, voice line, song and sound effect under the studio folder, newest first."""
 
     found = []
+    marked_sheets = library_marked_sheets()
     for folder, kinds in (("renders", (".mp4",)), ("exports", (".mp4",)), ("scouts", (".png",)), ("sound", (".mp4",)),
                           ("uploads", (".png", ".jpg", ".jpeg", ".webp", ".mp4", ".mov")), ("projects", (".mp4",)), ("slate", (".mp4",)),
                           ("agent", (".png", ".jpg", ".jpeg", ".webp", ".mp4", ".mov")), ("qa", (".mp4",))):
@@ -3369,9 +3408,14 @@ def library() -> list[dict]:
                     stat = path.stat()
                 except OSError:  # a file taken out of the Library while it is being listed
                     continue
-                found.append({"path": relative(path), "kind": "video" if path.suffix.lower() in (".mp4", ".mov")
-                              else "image", "folder": folder, "modified": stat.st_mtime,
-                              "size": stat.st_size})
+                item = {"path": relative(path), "kind": "video" if path.suffix.lower() in (".mp4", ".mov")
+                        else "image", "folder": folder, "modified": stat.st_mtime, "size": stat.st_size}
+                # Keep sheets as images for every Create/Library action, but give the Library its own filter.
+                # Both generators save the assembled sheet under a job folder; individual turnaround views stay Stills.
+                if (folder == "scouts" and len(path.relative_to(HOME).parts) == 3 and path.name in ("turn_sheet.png", "h3_character_sheet.png")) \
+                        or (item["kind"] == "image" and item["path"] in marked_sheets):
+                    item["sheet"] = True
+                found.append(item)
     found += library_sounds()
     found = sorted(found, key=lambda item: -item["modified"])[:400]
     made = hub.takes()  # which Spark rendered a clip, and at which seed (sparks.py)
@@ -3382,6 +3426,26 @@ def library() -> list[dict]:
         if item["path"] in failed or item["folder"] == "qa":
             item["failed"] = True  # shown in the Library to look at; the Director never cuts it in unless it is circled
     return found
+
+
+@app.post("/api/library/sheet")
+def set_library_sheet(body: dict) -> dict:
+    """Let a user classify an uploaded image as a character sheet, without changing the image file."""
+    sheet = body.get("sheet")
+    if not isinstance(sheet, bool):
+        raise HTTPException(400, "sheet must be true or false")
+    target = inside(str(body.get("path") or ""))
+    path = relative(target)
+    if not target.is_file() or not path.startswith("uploads/") or target.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp"):
+        raise HTTPException(400, "choose an uploaded image in the Library")
+    with lock:
+        marked = library_marked_sheets()
+        if sheet:
+            marked.add(path)
+        else:
+            marked.discard(path)
+        save_library_marked_sheets(marked)
+    return {"path": path, "sheet": sheet}
 
 
 FAILED_SEEN: dict = {}  # project.json -> (its mtime, the failed takes in it): a film is read again only when it changed

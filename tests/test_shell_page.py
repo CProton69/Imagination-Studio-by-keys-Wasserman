@@ -192,6 +192,17 @@ def test_each_engine_opens_on_a_landing_whose_cards_open_the_views():
     assert out["art"] == "slot" and not out["img"]  # no art is ready in the manifest: a plain panel, never a broken image
 
 
+def test_video_face_fix_opens_on_video_with_a_finished_clip():
+    out = run("""globalThis.ACT = { open: null }; globalThis.actPanel = () => el("div", {}, "face fix controls");
+      answers["/api/library"] = [{ kind: "video", path: "renders/clip.mp4" }];
+      out.card = !!button(viewVideo(), "Fix faces");
+      await videoFaceOpen(); out.first = VIDEO_FACE.clip; out.picker = text(viewVideo()).includes("Use this clip");
+      await videoFaceOpen("renders/clip.mp4");
+      out.place = tab; out.source = ACT.open.path; out.controls = text(viewVideo()).includes("face fix controls");""")
+    assert out == {"card": True, "first": "renders/clip.mp4", "picker": True,
+                   "place": "Video", "source": "renders/clip.mp4", "controls": True}
+
+
 def test_create_carries_what_the_prompt_goes_to_as_one_small_control():
     out = run("""C.goes = "image"; const bar = intentBar(); out.bar = text(bar);
       const seg = find(bar, n => n.attrs && n.attrs.role === "tablist"); out.on = seg.kids.filter(n => n.attrs.class === "on").map(text);
@@ -232,6 +243,18 @@ def test_the_palette_finds_actions_and_runs_them():
     assert out["agent"] == "Agent" and out["still"] == ["Create", "image"]
     assert "Ask your agent" in out["blender"] and "Brains & tools" in out["blender"]
     assert out["updates"] == "Updates"
+
+
+def test_palette_indexes_new_video_room_and_library_tools():
+    out = run("""globalThis.ACT = { open: null }; answers["/api/library"] = [];
+      const acts = palActions(), match = q => acts.filter(x => q.split(/\\s+/).every(w => x.words.includes(w))).map(x => x.label);
+      out.pixelai = match("pixelai face"); out.builder = match("prompt builder");
+      out.refmod = match("refmod"); out.csv = match("csv shot list");
+      await acts.find(x => x.label === "Fix faces").run(); out.opened = [tab, VIDEO_FACE.open];
+      acts.find(x => x.label === "Prompt Builder").run(); out.room = tab;""")
+    assert "Fix faces" in out["pixelai"] and "Prompt Builder" in out["builder"]
+    assert "Create a RefMod" in out["refmod"] and "Import a shot list CSV" in out["csv"]
+    assert out["opened"] == ["Video", True] and out["room"] == "Prompt Builder"
 
 
 def test_the_stage_offers_every_recipe_and_the_take_sheet_sets_one():

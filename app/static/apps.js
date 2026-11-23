@@ -56,6 +56,8 @@ const APPS = () => [
   { id: "realism", cat: "people", title: "Realistic people", one: "Faces that hold up in close-up, with real skin texture", src: "art/looks/realism-people.webp", sign: "cast", lora: "realism-people" },
   { id: "turnaround", cat: "people", title: "Turnaround sheet", one: "Five views of a character from one picture", art: "look-turnaround", sign: "image",
     off: () => apActReady("turnaround"), run: apAct("turnaround", "image", "Turnaround sheet") },
+  { id: "h3-image-sheet", cat: "people", title: "H3 Image character sheet", one: "Portraits, full-body angles and outfit details from one reference picture", art: "look-turnaround", sign: "image",
+    off: () => apActReady("h3sheet"), run: apAct("h3sheet", "image", "H3 Image character sheet") },
 
   { id: "camera", cat: "camera", title: "Camera moves", one: "Push-in, pull-back, orbit, crane, tilt and handheld, on cue", art: "look-camera-motion", sign: "video", lora: "camera-motion" },
   { id: "angles", cat: "camera", title: "Multiple angles", one: "The same subject from 12 directions, from one picture", art: "look-qwen-multiple-angles", sign: "image", lora: "qwen-multiple-angles" },
@@ -103,7 +105,10 @@ const APPS = () => [
 // each app of Wasserman's Filmmaker Suite (suite.js): its own icon, opening where the Studio takes its work
 const AP_SUITE_GO = { previs: () => go("Motion Previs") };
 function apSuite() { if (typeof suApps !== "function") return [];
-  if (typeof SU !== "undefined" && SU.apps === null && typeof suLoad === "function" && !AP.suite) { AP.suite = true; suLoad().then(() => { if (tab === "Apps") render(); }).catch(() => {}); }
+  if (typeof SU !== "undefined" && SU.apps === null && typeof suLoad === "function" && !AP.suite) { AP.suite = true; suLoad().then(() => {
+    if (tab === "Apps") render();
+    if (typeof PAL !== "undefined" && PAL.draw) PAL.draw();
+  }).catch(() => {}); }
   const seen = new Set();
   return suApps().filter(a => a.id !== "editor" && SU_ICON[a.id] && !seen.has(SU_ICON[a.id]) && seen.add(SU_ICON[a.id])).map(a => ({ id: "suite-" + a.id, cat: "suite", title: a.name, one: a.what || "", src: "art/suite/" + SU_ICON[a.id] + ".webp", sign: "suite", icon: true,
     run: AP_SUITE_GO[SU_ROLE[a.id]] || (() => go("Import")) })); }

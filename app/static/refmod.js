@@ -1,6 +1,6 @@
 // Create a RefMod (app/refmod.py, spark/spark_refmod.py): pictures and clips of one subject saved as a MiniMax H3
 // reference in refmods/. Opened from "RefMod" under a picture or a clip, or "RefMod from selected" over the Library.
-const REFMOD = { state: null, library: null, picker: false, f: { files: [], starts: {}, name: "", concept: "identity", mode: "full", seconds: 5, description: "", replace: false } };
+const REFMOD = { state: null, library: null, picker: false, clipOpen: false, f: { files: [], starts: {}, name: "", concept: "identity", mode: "full", seconds: 5, description: "", replace: false } };
 const RFM_CONCEPTS = { identity: ["A person or character", "a face, hair and outfit"], clothing: ["Clothing", "an outfit or costume"],
   pose_motion: ["A move", "a pose, dance, fight move or camera move"], style: ["A look", "the style of the pictures"],
   background: ["A place", "a set or background"], generic: ["Anything else", ""] };
@@ -82,8 +82,9 @@ function rfmClipPanel() { const st = REFMOD.state;
   const on = name => C.refmods.find(m => m.name === name);
   const flip = name => { const had = on(name); C.refmods = had ? C.refmods.filter(m => m !== had) : C.refmods.concat(C.refmods.length < most ? [{ name, strength: 1 }] : []);
     if (!had && C.refmods.length >= most && !on(name)) toast("At most " + most + " RefMods in one clip"); C.prompt = ""; render(); };
-  return el("div", {},
-    el("h3", { style: "margin-top:18px" }, "Saved RefMods" + (C.refmods.length ? " · " + C.refmods.length + " in this clip" : "")),
+  return el("details", { class: "fold", open: REFMOD.clipOpen,
+    ontoggle: e => { REFMOD.clipOpen = e.target.open; } },
+    el("summary", {}, "Saved RefMods" + (C.refmods.length ? " · " + C.refmods.length + " in this clip" : "")),
     el("div", { class: "note" }, "A RefMod is a subject saved earlier from pictures or a clip (Library: RefMod). Its references are added to this clip's, so a RefMod alone is enough. No <Picture> tag names it: describe the subject in the prompt (the woman with the black bob in the brown leather jacket). Keep one person per RefMod."),
     saved.length ? el("div", {}, saved.map(s => { const m = on(s.name);
       return el("div", { class: "kv", style: "padding:6px 0;border-bottom:1px solid var(--line);gap:10px;align-items:center" },

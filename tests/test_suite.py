@@ -71,6 +71,16 @@ def test_the_suite_lists_its_apps():
     assert all(one["name"] and one["what"] and isinstance(one["imports"], list) and isinstance(one["exports"], list) for one in apps)
 
 
+def test_shot_list_csv_keeps_camera_details_for_slate():
+    text = "Shot ID,Section,Location,Action,Shot Size,Lens,Angle,Camera Move,Duration (s)\n12,Opening,Kitchen,Opens the door,CU,50mm,low,pan,5\n"
+    found = suite.csv_shotlist(text, "Kitchen plan")
+    assert found["title"] == "Kitchen plan" and len(found["shots"]) == 1
+    shot = found["shots"][0]
+    assert shot["title"] == "Shot 12" and shot["scene"] == "Opening · Kitchen"
+    assert shot["action"] == "Opens the door" and "Lens: 50mm" in shot["camera"]
+    assert found["locations"] == [{"name": "Kitchen", "description": "Kitchen"}]
+
+
 def test_a_fountain_screenplay_becomes_shots_cast_and_places():
     found = send("reel.fountain", FOUNTAIN.encode()).json()
     assert found["app"] == "fountain" and found["title"] == "The Last Reel"

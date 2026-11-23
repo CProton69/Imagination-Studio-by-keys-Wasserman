@@ -1,6 +1,8 @@
 """The Library lists sounds too (app/server.py library_sounds): voice lines and songs by their kept takes, sound
 effects from the sound folder. python3 -m pytest tests/test_library_sounds.py"""
+import asyncio
 import json
+from io import BytesIO
 import os
 import sys
 import tempfile
@@ -32,6 +34,49 @@ def test_voice_lines_songs_and_sound_effects_are_in_the_library_by_kind():
     assert sounds["sound/foley/door.wav"]["sound"] == "sfx"
     assert "voice/gone.wav" not in sounds and not any(p.endswith(".txt") for p in sounds)
     assert client.delete("/api/library", params={"path": "voice/v1.wav"}).status_code == 400  # kept in Voice, not deleted here
+
+
+def test_character_sheets_have_a_separate_library_filter_but_remain_images():
+    home = server.HOME
+    for path in ("scouts/h3-job/h3_character_sheet.png", "scouts/turn-job/turn_sheet.png",
+                 "scouts/turn-job/turn_view1.png", "scouts/other-job/still.png",
+                 "uploads/turn_sheet.png"):
+        target = home / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"png")
+    listed = {m["path"]: m for m in server.library()}
+    for path in ("scouts/h3-job/h3_character_sheet.png", "scouts/turn-job/turn_sheet.png"):
+        assert listed[path]["kind"] == "image" and listed[path]["sheet"] is True
+    for path in ("scouts/turn-job/turn_view1.png", "scouts/other-job/still.png", "uploads/turn_sheet.png"):
+        assert listed[path]["kind"] == "image" and "sheet" not in listed[path]
+
+
+def test_uploaded_character_sheet_can_be_marked_and_unmarked():
+    home = server.HOME
+    picture = home / "uploads/my-picture.png"
+    picture.parent.mkdir(parents=True, exist_ok=True)
+    picture.write_bytes(b"png")
+    listed = {m["path"]: m for m in server.library()}
+    assert "sheet" not in listed["uploads/my-picture.png"]
+    assert server.set_library_sheet({"path": "uploads/my-picture.png", "sheet": True})["sheet"] is True
+    assert {m["path"]: m for m in server.library()}["uploads/my-picture.png"]["sheet"] is True
+    assert "uploads/my-picture.png" in json.loads(server.LIBRARY_SHEET_TAGS.read_text())
+    assert server.set_library_sheet({"path": "uploads/my-picture.png", "sheet": False})["sheet"] is False
+    assert "sheet" not in {m["path"]: m for m in server.library()}["uploads/my-picture.png"]
+    for body in ({"path": "missing.png", "sheet": True}, {"path": "uploads/my-picture.png", "sheet": "yes"}):
+        try:
+            server.set_library_sheet(body)
+        except server.HTTPException as error:
+            assert error.status_code == 400
+        else:
+            raise AssertionError("invalid sheet tag was accepted")
+
+
+def test_uploaded_sheet_name_is_recognised_before_upload_is_renamed():
+    uploaded = asyncio.run(server.upload(server.UploadFile(filename="A Character Sheet.png", file=BytesIO(b"png"))))
+    path = uploaded["path"]
+    assert path.startswith("uploads/") and "Character" not in path
+    assert {m["path"]: m for m in server.library()}[path]["sheet"] is True
 
 
 def test_a_sound_deleted_mid_listing_does_not_take_the_library_down(monkeypatch):

@@ -259,11 +259,27 @@ function telStart() {
     if (es && (es.readyState === 2 || (es.readyState === 1 && SHELL.telAt && Date.now() - SHELL.telAt > TEL_QUIET))) lost(es); }, 5000); }
 
 /* ---------- ⌘K ---------- */
-const PAL = { q: "", at: 0, items: [] };
+const PAL = { q: "", at: 0, items: [], draw: null };
 const lessonCount = () => { try { return lessons().length; } catch { return 23; } };
+// Index the live room and engine-card catalogs so a newly added Video, Image or other engine action is searchable
+// without a second, easily missed list of names to maintain. Apps are indexed by appsPalette below.
+function palCatalog(a, already) {
+  const seen = new Set(already.map(x => x.label.toLowerCase())), out = [];
+  const add = item => { if (!seen.has(item.label.toLowerCase())) { seen.add(item.label.toLowerCase()); out.push(item); } };
+  for (const room of ROOMS.filter(r => shown([r]).length))
+    add(a(room.id, room.name, { engines: "Creative Engine", vaults: "Studio Vault", agent: "Agent", apps: "Apps" }[room.group] || "Studio",
+      () => goRoom(room.id), room.says));
+  if (typeof ENGINE_PAGES !== "undefined") for (const [id, page] of Object.entries(ENGINE_PAGES)) {
+    const room = ROOMS.find(r => r.id === id);
+    for (const card of page().cards) add(a(card.sign || id, card.title, (room ? room.name : id) + " · " + (card.one || ""),
+      () => { const off = typeof card.off === "function" ? card.off() : card.off; if (off) toast(off); else card.run(); },
+      (card.words || "") + " " + id));
+  }
+  return out;
+}
 function palActions() { const a = (ico, label, hint, run, words = "") => ({ ico, label, hint, run, words: (label + " " + hint + " " + words).toLowerCase() });
   const create = (set, step = 0) => () => { Object.assign(C, set); C.step = step; sync(); C.prompt = ""; go("Create"); };
-  return [
+  const base = [
     a("video", "New clip with sound", "Video", create({ goes: "video", start: "text" }), "video h3 fasth3 text"),
     a("image", "New still or scouts", "Image", create({ goes: "image" }), "image picture qwen flux"),
     a("image", "Edit a picture", "Image", create({ goes: "edit" }), "re-draw"),
@@ -290,6 +306,8 @@ function palActions() { const a = (ico, label, hint, run, words = "") => ({ ico,
     a("story", "Rough cut", "Production · a film cut to a song", () => { if (typeof slateMode === "function") slateMode("slate", "rough"); else go("Production"); }, "rough cut beat song trailer resolve"),
     a("train", "Train a LoRA", "Looks · from your own clips", () => { if (typeof LK !== "undefined") LK.train = true; go("Looks"); }, "train lora training character look"),
     a("library", "Restyle, extend or fix a clip", "Library · under every clip", () => go("Library"), "restyle extend fix revise"),
+    a("library", "Create a RefMod", "Library · save pictures or clips as an H3 reference", () => { go("Library"); toast("Choose a picture or clip and press RefMod"); }, "refmod reference module character motion"),
+    a("suite", "Import a shot list CSV", "Filmmaker Suite · shots into a film", () => go("Import"), "csv shotlist spreadsheet production import"),
     a("suite", "Wasserman's Filmmaker Suite", "ScriptBreak · Cork Board · Blockout … built in", () => go("Import"), "import storyboard master canvas fountain suite send out"),
     a("library", "Library", "Studio Vaults", () => go("Library"), "files renders takes"),
     a("looks", "Looks", "LoRA styles", () => go("Looks"), "lora hub style horror"),
@@ -302,7 +320,8 @@ function palActions() { const a = (ico, label, hint, run, words = "") => ({ ico,
     a("learn", "Learn Imagination Studio", lessonCount() + " lessons", () => go("Tutorial"), "tutorial help"),
     // a room hidden from the sidebar (Settings → Studio layout) is still here
     ...ROOMS.filter(r => !shown([r]).length).map(r => a(r.id, r.name, "hidden from the sidebar", () => goRoom(r.id), r.says)),
-  ]; }
+  ];
+  return [...base, ...palCatalog(a, base)]; }
 async function palOpen() { if ($("#palette")) return; PAL.q = ""; PAL.at = 0;
   const input = el("input", { placeholder: "Search takes, settings and actions…", "aria-label": "Search", autocomplete: "off", spellcheck: "false" });
   const res = el("div", { class: "res", role: "listbox" });
@@ -328,8 +347,9 @@ async function palOpen() { if ($("#palette")) return; PAL.q = ""; PAL.at = 0;
   input.addEventListener("keydown", e => { if (e.key === "ArrowDown") { PAL.at = Math.min(PAL.items.length - 1, PAL.at + 1); draw(); e.preventDefault(); }
     else if (e.key === "ArrowUp") { PAL.at = Math.max(0, PAL.at - 1); draw(); e.preventDefault(); }
     else if (e.key === "Enter") { const x = PAL.items[PAL.at]; if (x) { palClose(); x.run(); } } else if (e.key === "Escape") palClose(); });
+  PAL.draw = draw;
   draw(); api("/api/library").then(list => { SHELL.libCache = list; if ($("#palette")) draw(); }).catch(() => {}); }
-function palClose() { const p = $("#palette"); if (p) { p.remove(); releaseMedia(p); } }
+function palClose() { PAL.draw = null; const p = $("#palette"); if (p) { p.remove(); releaseMedia(p); } }
 
 // ⌥1 to ⌥9 and ⌥0: the rooms that carry a key, in the sidebar's order
 const roomForKey = d => ROOMS.find(r => r.key === d) || null;

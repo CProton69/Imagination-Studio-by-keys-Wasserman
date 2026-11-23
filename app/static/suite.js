@@ -68,7 +68,7 @@ function suAppCard(a, act) { const role = SU_ROLE[a.id] || "info", slug = SU_ICO
   return run ? el("button", { class: "su-app", type: "button", title: tag + ": " + a.name, onclick: run }, ...kids) : el("div", { class: "su-app still" }, ...kids); }
 function viewImport() {
   if (SU.apps === null) { suLoad().then(() => { if (tab === "Import") render(); }); }
-  const input = el("input", { type: "file", multiple: true, class: "hide", accept: ".json,.zip,.fountain,.fdx,.txt,.md,.scriptbreak", onchange: () => suiteUpload([...input.files]) });
+  const input = el("input", { type: "file", multiple: true, class: "hide", accept: ".json,.zip,.fountain,.fdx,.txt,.md,.scriptbreak,.csv", onchange: () => suiteUpload([...input.files]) });
   const zone = el("div", { class: "dropzone", tabindex: "0", role: "button", "aria-label": "Choose files to bring in", onclick: () => input.click(), onkeydown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.click(); } },
     ondragover: e => { e.preventDefault(); zone.classList.add("over"); }, ondragleave: () => zone.classList.remove("over"), ondrop: e => { e.preventDefault(); zone.classList.remove("over"); suiteUpload([...e.dataTransfer.files]); } },
     input, el("span", { class: "eyebrow" }, SU.busy ? "Reading…" : "Drop files here"), el("b", {}, SU.busy ? "Turning it into shots" : "A screenplay, a board, a previs package or a storyboard"),

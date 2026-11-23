@@ -7,6 +7,7 @@
    drozbay's MaskVidExperiments and ylchen333's VOSR 2.0 nodes (CSWRY's VOSR 2.0), with SAM 3.1 for the mask. */
 const ACT = { state: null, open: null, busy: false, jobs: {}, faceLib: null, facePicking: null, faceQuery: "",
   turn: { size: "1024", strength: "1", seed: 1, prompt: "" },
+  sheet: { preset: "five", style: "none", resolution: "high", layout: true, expressions: false, seed: 42 },
   up: { megapixels: "2", denoise: "0.1" },
   rm: { person: "", clean: "auto", clean_frame: null, window: "22", steps: 12, seed: 904234, silent: false, mask: null },
   face: { faces: [{ image: null, which: "largest" }], canvas: "512", steps: 8, denoise: "0.5", full_fix_below_px: 110,
@@ -14,7 +15,7 @@ const ACT = { state: null, open: null, busy: false, jobs: {}, faceLib: null, fac
 // Fix faces: which face each picture's pass follows (actions.FACE_PICKS); several people are taken left to right
 const FACE_WHICH = { largest: "Largest face", smallest: "Smallest face", left: "Left-most", right: "Right-most", centre: "Nearest the centre" };
 const FACE_ORDER = ["left", "right", "centre", "largest"];
-const ACT_KEY = { turnaround: "turn", upscale: "up", remove: "rm", facefix: "face" };
+const ACT_KEY = { turnaround: "turn", h3sheet: "sheet", upscale: "up", remove: "rm", facefix: "face" };
 async function actLoad() { try { ACT.state = await api("/api/actions"); } catch { ACT.state = {}; } }
 const actOf = kind => (ACT.state || {})[kind] || { ready: false, why: "" };
 function actOpen(kind, path) { ACT.open = { kind, path }; if (kind === "remove") ACT.rm.mask = null; if (kind === "facefix") { ACT.faceLib = null; ACT.facePicking = null; } tab = "Library"; history.replaceState(null, "", "#Library"); render();
@@ -26,7 +27,8 @@ function actButtons(m) { const gfx = typeof gfxButtons === "function" ? gfxButto
   return (m.kind === "video" ? [one("upscale", "Upscale", "Make this clip larger and sharper: a latent upscale, then one light re-draw guided by the clip itself"),
                                one("remove", "Remove a person", "Take one person out of this clip and rebuild the background"),
                                one("facefix", "Fix faces", "Draw this clip's face again close up, from a picture of the face, and stitch it back")]
-    : [one("turnaround", "Turnaround", "Five views of this picture's subject, from the front round to the side or back")])
+    : [one("turnaround", "Turnaround", "Five views of this picture's subject, from the front round to the side or back"),
+       one("h3sheet", "H3 Image sheet", "Make a character reference sheet with MiniMax H3 Image from this picture")])
     .concat(typeof revButtons === "function" ? revButtons(m) : [], typeof swapButtons === "function" ? swapButtons(m) : [], typeof rfmButtons === "function" ? rfmButtons(m) : [], typeof reaButtons === "function" ? reaButtons(m) : [], gfx); }  // Restyle, Extend, Fix (revise.js), then Add a title, Caption this clip (graphics.js)
 // a LoRA's card in the hub, when the LoRA belongs to an action: where it is used, in place of "Use on this clip"
 function actHubNote(r) { const kind = r.action, a = actOf(kind);
@@ -49,9 +51,32 @@ function actPanel() { const o = ACT.open; if (!o) return null; if (typeof REV_KI
     el("div", { class: "seghead" }, el("b", {}, a.title || o.kind), el("span", { class: "note", style: "margin:0" }, o.path.split("/").pop()), el("span", { style: "flex:1" }),
       el("button", { class: "small", onclick: () => { ACT.open = null; render(); } }, "Close")));
   if (!a.ready) { put(box, el("div", { class: "note", style: "color:var(--warn)" }, a.why || "Not available on this machine.")); return box; }
-  const by = o.kind === "facefix" ? el("div", { class: "note" }, "With H3 FaceRefine by Carasibana, H3 Face Size Fade by PixelAI Labs, MaskVidExperiments by drozbay and VOSR 2.0 (CSWRY, nodes by ylchen333), on MiniMax H3 Ref2VA.")
+  const by = o.kind === "h3sheet" ? el("div", { class: "note" }, "With H3 Character Sheet Designer by hideout and MiniMax H3 Image. The source picture is passed as a native image reference; no character LoRA is needed.")
+    : o.kind === "facefix" ? el("div", { class: "note" }, "With H3 FaceRefine by Carasibana, H3 Face Size Fade by PixelAI Labs, MaskVidExperiments by drozbay and VOSR 2.0 (CSWRY, nodes by ylchen333), on MiniMax H3 Ref2VA.")
     : el("div", { class: "note" }, "With " + a.lora_name + " by " + a.author + ".");
-  if (o.kind === "turnaround") {
+  if (o.kind === "h3sheet") {
+    put(box, el("div", { class: "row", style: "align-items:flex-start" },
+      el("div", { style: "flex:0 0 220px" }, media(o.path, { style: "width:220px;border-radius:8px" })),
+      el("div", {},
+        el("div", { class: "note", style: "margin-top:0" }, "Make one still sheet of the same character from several angles. MiniMax H3 Image uses the source picture directly; the designer writes the sheet layout and view prompts. Details hidden in the source picture are design estimates."),
+        field("Views", select(f, "preset", { five: "Standard · five views", turnaround: "Full body · front, side, back", head: "Head · six angles", all: "Full sheet · 13 views" }, () => { if (f.preset !== "head") f.expressions = false; redraw(); })),
+        f.preset === "head" ? field("Expressions instead of angles", bind(f, "expressions", el("input", { type: "checkbox", style: "width:auto" }))) : null,
+        field("Rendering style", select(f, "style", { none: "Match the source", anime: "Anime", photo: "Photographic", realistic_painting: "Realistic painting", semi_realistic_anime: "Semi-realistic anime", oil_painting: "Oil painting", watercolor: "Watercolor", gouache: "Gouache", colored_pencil: "Colored pencil", "3d": "3D render" })),
+        field("Sheet size", select(f, "resolution", { high: "High · automatic", max_8mp: "Up to 8 MP", max_16mp: "Up to 16 MP · most memory" })),
+        field("Use layout guide", bind(f, "layout", el("input", { type: "checkbox", style: "width:auto" }))),
+        field("Seed", bind(f, "seed", el("input", { type: "number", min: 0, step: 1, style: "max-width:150px" }))),
+        by,
+        el("button", { class: "hot", disabled: ACT.busy, onclick: () => {
+          const seed = Number(f.seed);
+          if (!Number.isSafeInteger(seed) || seed < 0) return toast("Seed must be a non-negative whole number");
+          actQueue("h3sheet", { image: o.path, preset: f.preset, style: f.style, resolution: f.resolution,
+            layout: !!f.layout, expressions: !!f.expressions, seed });
+        } }, "Make the H3 Image sheet"))),
+      actShow("h3sheet", job => el("div", {}, el("img", { src: file(job.outputs[0]), alt: "H3 Image character sheet",
+        style: "width:100%;border-radius:8px;margin-top:8px" }),
+        el("div", { class: "row" }, el("button", { class: "small", onclick: actUse(job.outputs[0], "first") }, "Use as first frame"),
+          el("button", { class: "small", onclick: actUse(job.outputs[0], "ref") }, "Use as video reference")))));
+  } else if (o.kind === "turnaround") {
     put(box, el("div", { class: "row", style: "align-items:flex-start" }, el("div", { style: "flex:0 0 220px" }, media(o.path, { style: "width:220px;border-radius:8px" })),
       el("div", {}, el("div", { class: "note", style: "margin-top:0" }, "Five views of the subject of this picture, turning from where it faces now, made together so they agree. Each is a picture of its own in the Library: use one as a first frame, or several as reference pictures of the same character."),
         field("Size of each view", choice(f, "size", { 512: ["512", "fastest, what the LoRA was trained at"], 1024: ["1024", "the sweet spot"], 2048: ["2048", "slow; the turn comes late"] }, redraw, true)),

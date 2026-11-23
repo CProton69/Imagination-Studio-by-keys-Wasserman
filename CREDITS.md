@@ -100,6 +100,10 @@ repository at a pinned commit when the Studio is installed; none of their code i
   (H3 Contact Sheet, GPL-3.0). The idea is theirs: five still pictures packed where a five-step video would go, so
   the model's consistency along time becomes consistency between views. On a Mac the MLX engine packs and decodes
   the five views the same way (`h3_generate.py --sheet`), written from their description of it.
+- **H3 Image character sheet:** **hideout / ukr8b3g-cmyk**'s H3 Character Sheet Designer (MIT) compiles the view
+  choices, layout guide and prompt. The Studio sends its outputs and the source picture to ComfyUI's native
+  MiniMax H3 Image conditioning. The node is installed separately by `scripts/setup-h3-sheet.sh`; no author code
+  or example artwork is included in this repository. The model is MiniMax H3 Image under its own license.
 - **keys-HDR LORA (the HDR finish):** the HLG curve of ARIB STD-B67 and ITU-R BT.2100 and the colour matrix of ITU-R BT.2087; **x265** by
   MulticoreWare (GPL-2.0, through the machine's own FFmpeg, not shipped here) writes the HEVC. Its tone curve and split
   toning were set against a clip posted on X by hi_personality, measured for brightness and tint only; none of that

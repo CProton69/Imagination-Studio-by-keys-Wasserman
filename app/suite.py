@@ -20,6 +20,8 @@ a ZIP is taken apart by hand: no absolute paths, no "..", no links, and a cap on
 from __future__ import annotations
 
 import json
+import csv
+import io
 import ntpath
 import os
 import re
@@ -78,6 +80,51 @@ def shot(number: int, **given) -> dict:
     for key in ("title", "scene", "action", "camera", "notes"):
         out[key] = str(out[key] or "").strip()
     return out
+
+
+def csv_shotlist(text: str, title: str) -> dict:
+    """Read the common production shot-list CSV layouts into the suite's shot shape."""
+    try:
+        rows = list(csv.DictReader(io.StringIO(text.lstrip("\ufeff"))))
+    except csv.Error as error:
+        raise HTTPException(400, f"could not read this shot-list CSV: {error}") from error
+    if not rows:
+        raise HTTPException(400, "this CSV has no shot rows")
+    # Normalize header spelling while retaining the original row values.
+    def pick(row: dict, *names: str) -> str:
+        values = {re.sub(r"[^a-z0-9]+", "", str(key or "").lower()): str(value or "").strip()
+                  for key, value in row.items()}
+        return next((values[re.sub(r"[^a-z0-9]+", "", name.lower())] for name in names
+                     if values.get(re.sub(r"[^a-z0-9]+", "", name.lower()))), "")
+
+    shots, locations = [], {}
+    for index, row in enumerate(rows, 1):
+        ident = pick(row, "Shot ID", "Shot", "Shot Number") or str(index)
+        section = pick(row, "Section", "Scene")
+        location = pick(row, "Slug / Location", "Location", "Slug")
+        heading = " · ".join(part for part in (section, location) if part) or f"Scene {index}"
+        if location:
+            locations.setdefault(location, {"name": location, "description": location})
+        action = pick(row, "Action", "Description", "Prompt")
+        if not action:
+            continue
+        size = pick(row, "Shot Size", "Size")
+        lens = pick(row, "Lens")
+        angle = pick(row, "Angle")
+        move = pick(row, "Camera Move", "Move", "Movement")
+        camera = ", ".join(f"{label}: {value}" for label, value in
+                            (("Shot", size), ("Lens", lens), ("Angle", angle), ("Move", move)) if value)
+        notes = "; ".join(part for part in (pick(row, "Time", "Time of Day"),
+                                                pick(row, "Palette / Tool Note", "Palette", "Tool Note"),
+                                                pick(row, "Status")) if part)
+        speaker, line = pick(row, "Speaker", "Character"), pick(row, "Dialogue", "Line")
+        shots.append(shot(index, id=f"s{index:03d}", title=f"Shot {ident}", scene=heading, action=action,
+                          camera=camera, seconds=pick(row, "Duration (s)", "Duration", "Seconds"), notes=notes,
+                          dialogue=[{"character": speaker, "line": line}] if line else []))
+    if not shots:
+        raise HTTPException(400, "no shots with an Action or Description column were found")
+    return {"app": "Production shot list CSV", "title": title, "shots": shots, "cast": [],
+            "locations": list(locations.values()), "warnings": []}
 
 
 def safe_name(name: str) -> str | None:
@@ -561,6 +608,8 @@ def read_upload(upload: Path, name: str, hint: str, folder: Path, home: Path) ->
     """What the uploaded file is, read into the import's shape. ``hint`` (the form's "app") only breaks a tie."""
 
     suffix = upload.suffix.lower()
+    if suffix == ".csv":
+        return csv_shotlist(read_text(upload), Path(name).stem)
     if suffix == ".fountain" or (suffix == ".txt" and hint in ("fountain", "")):
         return {**fountain(read_text(upload)), "source_script": relative_to(upload, home)}
     if suffix == ".md":
@@ -839,7 +888,10 @@ def as_slate(found: dict, home: Path, blank) -> dict:
         scenes[-1]["shots"].append({
             "id": slate_id("shot"), "name": one.get("title") or f"Shot {len(scenes[-1]['shots']) + 1}", "intent": one.get("notes") or "",
             "spec": {"durationSec": one.get("seconds") or defaults["durationSec"], "fps": defaults["fps"], "aspectRatio": defaults["aspectRatio"],
-                     "lens": None, "movement": None, "size": None, "angle": None},
+                     "lens": next((part[5:].strip() for part in (one.get("camera") or "").split(",") if part.strip().lower().startswith("lens:")), None),
+                     "movement": next((part[5:].strip() for part in (one.get("camera") or "").split(",") if part.strip().lower().startswith("move:")), None),
+                     "size": next((part[5:].strip() for part in (one.get("camera") or "").split(",") if part.strip().lower().startswith("shot:")), None),
+                     "angle": next((part[6:].strip() for part in (one.get("camera") or "").split(",") if part.strip().lower().startswith("angle:")), None)},
             "prompt": prompt, "lockedLines": [], "mutedLines": [], "beatSheet": None, "targetModel": "minimax-h3", "maxChars": None,
             "variants": [], "history": [], "takes": [], "createdAt": stamp, "updatedAt": stamp,
             "tf": {"start": "image" if image else "text", "cast": cast, "location": place, "lines": lines, "soundscape": "", "music": "N/A",
@@ -1097,8 +1149,8 @@ def attach(home: Path, jobs: dict, lock: threading.Lock, presets: dict, app=None
         local(request)
         name = Path(file.filename or "upload").name
         suffix = Path(name).suffix.lower()
-        if suffix not in (".zip", ".json", ".md", ".fountain", ".scriptbreak", ".txt"):
-            raise HTTPException(400, "the suite's files are .zip, .json, .scriptbreak, .md, .fountain or .txt")
+        if suffix not in (".zip", ".json", ".md", ".fountain", ".scriptbreak", ".txt", ".csv"):
+            raise HTTPException(400, "the suite's files are .zip, .json, .scriptbreak, .md, .fountain, .txt or .csv")
         import_id = time.strftime("%m%d-%H%M%S-") + uuid.uuid4().hex[:6]
         folder = imports / import_id
         folder.mkdir(parents=True)

@@ -188,6 +188,12 @@ LOCK = threading.RLock()  # cast.json is read and written by the page and by a r
 SHEET_POLL_S = 5
 SHEET_SIZE = 1024  # standard turnaround output side
 SHEET_SIZE_H3_IMAGE = 2048  # keep the high-resolution H3 Image still detailed in the turnaround
+SHEET_TURN_PROMPT = (
+    "Create a neutral character turnaround of the person in <Picture 1>: the same person standing upright in five "
+    "consistent full-body studio views, turning steadily from front through three-quarter and side to rear. Every "
+    "view has one flat, seamless pale grey studio background and soft, even white studio lighting. Keep the person's "
+    "face, hair, body shape, clothes and colours consistent."
+)
 PICTURE = re.compile(r"scouts/[A-Za-z0-9_-]{1,40}/[A-Za-z0-9_.-]{1,80}\.(?:png|jpg)")
 
 
@@ -660,7 +666,8 @@ def sheet_run(cid: str, still_job: str, turn_size: int = SHEET_SIZE) -> None:
         still = next((p for p in job.get("outputs") or [] if not p.endswith("sheet.jpg")), "")
         name = next((one["name"] for one in read_cast() if one["id"] == cid), "")
         turn = submit({"kind": "turnaround", "title": "Reference sheet: " + name,
-                       "params": {"image": still, "size": turn_size, "strength": 1, "seed": 0}})
+                       "params": {"image": still, "size": turn_size, "strength": 0.7, "seed": 0,
+                                  "prompt": SHEET_TURN_PROMPT}})
         update_sheet(cid, still=still, state="turn", job=turn["id"])
         job = wait_for(turn["id"])
         if not job or job.get("status") != "done":

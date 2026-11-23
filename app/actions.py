@@ -30,11 +30,11 @@ from fastapi import APIRouter, HTTPException
 import hlg
 import windows_cuda  # noqa: E402  (the native Windows CUDA tier, beside this file)
 
-KINDS = ("turnaround", "upscale", "mask", "remove", "hlg", "facefix")
+KINDS = ("turnaround", "h3sheet", "upscale", "mask", "remove", "hlg", "facefix")
 PRESETS = Path(__file__).with_name("lora-presets.json")
 # the LoRA each action is built on (its id in the hub), and what the action is called on the page
-LORA = {"turnaround": "turnaround", "upscale": "video-upscaler", "remove": "person-remover", "mask": None, "hlg": None, "facefix": None}
-TITLES = {"turnaround": "Turnaround sheet", "upscale": "Upscale", "remove": "Remove a person", "mask": "Find a person", "hlg": "keys-HDR LORA",
+LORA = {"turnaround": "turnaround", "h3sheet": None, "upscale": "video-upscaler", "remove": "person-remover", "mask": None, "hlg": None, "facefix": None}
+TITLES = {"turnaround": "Turnaround sheet", "h3sheet": "H3 Image character sheet", "upscale": "Upscale", "remove": "Remove a person", "mask": "Find a person", "hlg": "keys-HDR LORA",
           "facefix": "Fix faces"}
 SIZES = (512, 1024, 2048)                 # a turnaround view's side: 512 is what the LoRA was trained at
 MEGAPIXELS = (1.0, 2.0, 3.0, 4.0)         # an upscale's area: 2 is about 1920x1080
@@ -44,6 +44,15 @@ CANVASES = (512, 640, 768)                # Fix faces: the face crop's side (spa
 # how many people one job takes (one pass each, chained)
 FACE_PICKS = {"largest": "largest_face", "smallest": "smallest_face", "left": "left_most", "right": "right_most", "centre": "centre_most"}
 FACES = 4
+SHEET_VIEWS = {
+    "five": ("face_front", "face_left", "body_front", "body_left", "body_back"),
+    "turnaround": ("body_front", "body_left", "body_back"),
+    "head": ("face_front", "face_left", "face_right", "face_3q_left", "face_3q_right", "face_back"),
+    "all": ("face_front", "face_left", "face_right", "face_3q_left", "face_3q_right", "face_back",
+            "body_front", "body_left", "body_back", "clothing_front", "clothing_back", "hands", "feet"),
+}
+SHEET_STYLES = ("none", "anime", "photo", "realistic_painting", "semi_realistic_anime", "oil_painting",
+                "watercolor", "gouache", "colored_pencil", "3d")
 REGULAR_FACE_MODELS = {"minimax_h3_ref2va_pruned_bf16.safetensors", "minimax_h3_ref2va_pruned_int8_convrot.safetensors"}
 # On a Mac: the node pack and the files under $MAC_COMFY_MODELS each action needs, and the option that installs them
 X265 = {}                                 # whether this machine's ffmpeg has libx265: asked once, with a time limit
@@ -98,6 +107,21 @@ def attach(home: Path, pack: Path, spark: bool, inside, relative, windows: bool 
     def missing(kind: str) -> str:
         """Why an action cannot run here, or '' when it can."""
 
+        if kind == "h3sheet":
+            if not spark or windows_cuda.active():
+                return "H3 Image character sheets need the Studio's Linux ComfyUI with MiniMax H3 Image installed."
+            if not (prefix / "ComfyUI/comfy_extras/nodes_minimax_h3.py").is_file():
+                return "MiniMax H3 Image needs ComfyUI 0.45.0 or newer."
+            if not (prefix / "ComfyUI/custom_nodes/H3-Character-Sheet-Designer/h3_character_sheet/minimax_image_node.py").is_file():
+                return "Install the character sheet node with `bash scripts/setup-h3-sheet.sh`, then restart ComfyUI."
+            image_models = models / "MiniMax-H3-Image-Comfy"
+            if (not any((image_models / "diffusion_models" / name).is_file() for name in
+                        ("minimax_h3_image_pruned_int8_convrot.safetensors", "minimax_h3_image_pruned_w4a8.safetensors"))
+                    or not any((image_models / "text_encoders" / name).is_file() for name in
+                               ("qwen3vl_32b_minimax_h3_int8_convrot.safetensors", "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"))
+                    or not (image_models / "vae/minimax_h3_image_vae_fp16.safetensors").is_file()):
+                return "Install MiniMax H3 Image in Studio before making a character sheet."
+            return ""
         if kind == "hlg":
             if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
                 return "The HDR finish needs ffmpeg and ffprobe, which are not installed on this machine."
@@ -167,6 +191,7 @@ def attach(home: Path, pack: Path, spark: bool, inside, relative, windows: bool 
             out[kind] = {"title": TITLES[kind], "ready": not why, "why": why, "lora": LORA[kind],
                          "lora_name": card.get("name"), "author": card.get("author")}
         out["turnaround"].update(sizes=SIZES, size=1024)
+        out["h3sheet"].update(presets=list(SHEET_VIEWS), styles=list(SHEET_STYLES))
         out["upscale"].update(megapixels=MEGAPIXELS, megapixel=2.0)
         out["remove"].update(windows=WINDOWS, window=22, steps=12)
         out["hlg"].update(strength=1.0)
@@ -234,6 +259,36 @@ def attach(home: Path, pack: Path, spark: bool, inside, relative, windows: bool 
         script = [python, str(pack / "spark/spark_workflows.py"), kind]
         env = {"PREFIX": str(prefix)} if comfy else {}
         lora = lora_file(LORA[kind], comfy=comfy) if LORA[kind] else None
+        if kind == "h3sheet":
+            picture = media(params, "image", (".png", ".jpg", ".jpeg", ".webp"))
+            preset = params.get("preset") or "five"
+            style = params.get("style") or "none"
+            if not isinstance(preset, str) or not isinstance(style, str) or preset not in SHEET_VIEWS or style not in SHEET_STYLES:
+                raise HTTPException(400, "choose a listed character sheet view set and style")
+            profile = params.get("resolution") or "high"
+            if not isinstance(profile, str) or profile not in ("high", "max_8mp", "max_16mp"):
+                raise HTTPException(400, "resolution is high, max_8mp or max_16mp")
+            if type(params.get("layout", True)) is not bool or type(params.get("expressions", False)) is not bool:
+                raise HTTPException(400, "layout and expressions are true or false")
+            seed = number(params, "seed", 42, int)
+            if not 0 <= seed < 2**64:
+                raise HTTPException(400, "seed is a non-negative 64-bit whole number")
+            state = {"schema_version": 3, "views": list(SHEET_VIEWS[preset]),
+                     "size": {"mode": "auto", "body_height": 1120, "manual_width": 3168, "manual_height": 1280},
+                     "part_prompts": {}, "hand_state": "reference", "clothing_mode": "garment",
+                     "clothing_type": "reference", "footwear_state": "reference",
+                     "resolution_profile": profile}
+            if params.get("expressions"):
+                if preset != "head":
+                    raise HTTPException(400, "expressions need the six head views")
+                state["expression_sheet"] = True
+            target = home / "scouts" / job_id / "h3_character_sheet.png"
+            command = [python, str(pack / "spark/spark_generate.py"), "image", "--model", "h3-image",
+                       "--sheet-reference", str(picture), "--sheet-state", json.dumps(state, separators=(",", ":")),
+                       "--sheet-style", style, "--seed", str(seed), "-o", str(target)]
+            if params.get("layout", True):
+                command.append("--sheet-layout")
+            return command, env, [str(target)]
         if kind == "turnaround":
             picture = media(params, "image", (".png", ".jpg", ".jpeg", ".webp"))
             size = number(params, "size", 1024, int)
@@ -346,7 +401,7 @@ def attach(home: Path, pack: Path, spark: bool, inside, relative, windows: bool 
     def source_of(kind: str, params: dict) -> str | None:
         """The Library file an action's result came from, as the page shows it beside the result."""
 
-        path = params.get("image") if kind == "turnaround" else params.get("video")  # facefix: the clip, not its face picture
+        path = params.get("image") if kind in ("turnaround", "h3sheet") else params.get("video")  # facefix: the clip, not its face picture
         return relative(inside(path)) if path else None
 
     build.lora_file = lora_file

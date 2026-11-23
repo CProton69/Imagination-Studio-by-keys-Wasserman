@@ -1,6 +1,8 @@
 """The optional analyzer stays in the queue and produces a portable report package."""
 
 import os
+import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -73,3 +75,54 @@ def test_api_job_uses_studio_queue_and_refuses_outside_files(tmp_path, monkeypat
     with pytest.raises(HTTPException) as exc:
         server.queue_job({"kind": "rea_video", "params": {"video": str(outside)}})
     assert "outside the studio folder" in exc.value.detail
+
+
+def test_report_reads_generation_units_and_text_only_from_a_completed_job(tmp_path, monkeypatch):
+    home = tmp_path / "Studio"
+    folder = home / "analysis"
+    folder.mkdir(parents=True)
+    archive = folder / "job1.zip"
+    with zipfile.ZipFile(archive, "w") as package:
+        package.writestr("VIDEO.md", "# Overview")
+        package.writestr("video/remake.md", "# Remake")
+        package.writestr("breakdown.json", json.dumps({"source": {"file": "source.mp4", "duration": 5},
+            "summary": {"confidence": 0.5}, "shots": [{"index": 1, "start": 0, "end": 5,
+            "aspects": {"camera": {"result": {"move": "pan"}}}}],
+            "production_plan": {"units": [{"id": "G1", "duration": 5, "brief": [{"action": "walks"}]}]}}))
+        package.writestr("shots/shot_001.jpg", b"image data")
+    monkeypatch.setattr(server, "HOME", home)
+    monkeypatch.setitem(server.jobs, "job1", {"kind": "rea_video", "status": "done",
+                                              "outputs": ["analysis/job1.md", "analysis/job1.zip"]})
+    report = server.rea_video_report("job1")
+    assert report["units"][0]["brief"][0]["action"] == "walks"
+    assert report["parts"]["video/remake.md"] == "# Remake"
+    assert "shots/shot_001.jpg" not in report["parts"]
+    with pytest.raises(HTTPException):
+        server.rea_video_report("not-a-job")
+
+
+def test_report_handoff_clears_old_motion_and_lora_and_keeps_missing_action_visible():
+    if not shutil.which("node"):
+        pytest.skip("node is needed for the page handoff")
+    script = r"""
+const fs = require('fs'), vm = require('vm');
+globalThis.C = { loras: [{id:'combat'}], motion: {layer:'reference'}, scene:'old', action:'old' };
+globalThis.S = { durations: {5:124, 10:243, 15:362}, long:{} };
+globalThis.sync = () => {}; globalThis.go = t => { globalThis.sent = t; };
+globalThis.toast = t => { globalThis.notice = t; };
+globalThis.fitLength = n => n <= 5 ? 5 : n <= 10 ? 10 : 15;
+globalThis.el = (tag, attrs, ...kids) => ({tag, attrs, kids: kids.flat(Infinity)});
+vm.runInThisContext(fs.readFileSync(process.argv[1], 'utf8'));
+REA.report = { source: {duration:5}, shots: [{aspects: {lighting: {result: {quality:'soft light'}}, grade: {result: {tone:'cool'}}}}] };
+reaSend({duration:5, brief:[{action:'', framing:'close-up, camera pans'}]}, false);
+if (C.action !== '' || C.camera !== '' || C.scene !== 'soft light; cool' || C.loras.length || C.motion || C.engine !== 'h3' || sent !== 'Create' || !notice.includes('did not describe')) process.exit(1);
+REA.report = { strategy:'still-image move / static frame', source:{duration:15}, shots:[], units:[], parts:{'VIDEO.md':'overview'} };
+const panel = reaReportPanel();
+const walk = n => typeof n === 'string' ? n : n && n.kids ? n.kids.map(walk).join(' ') : '';
+if (!walk(panel).includes('Send draft to Create')) process.exit(2);
+reaSend({duration:15, brief:[]}, true);
+if (C.camera !== 'A whole-frame pan and zoom.' || C.seconds !== 15 || C.action !== '') process.exit(3);
+"""
+    done = subprocess.run(["node", "-e", script, str(ROOT / "app/static/rea-video.js")],
+                          text=True, capture_output=True, timeout=10)
+    assert done.returncode == 0, done.stderr
